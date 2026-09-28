@@ -1,0 +1,8 @@
+node_modules/
+dist/
+target/
+*.log
+backend/logs/
+frontend/login.json
+frontend/token.txt
+.DS_Store

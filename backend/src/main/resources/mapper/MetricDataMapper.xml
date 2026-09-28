@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aiops.module.monitor.mapper.MetricDataMapper">
+
+    <!-- 时序查询：DATE_FORMAT 分桶 + 聚合函数。aggregation 已在 Service 层白名单校验 -->
+    <select id="querySeries" resultType="map">
+        SELECT
+            target_id            AS targetId,
+            metric_key           AS metricKey,
+            DATE_FORMAT(collect_time, #{format}) AS bucketTime,
+            ROUND(AVG(metric_value), 2) AS value
+        FROM metric_data
+        WHERE collect_time BETWEEN #{startTime} AND #{endTime}
+          AND target_id IN
+        <foreach collection="targetIds" item="tid" open="(" separator="," close=")">#{tid}</foreach>
+          AND metric_key IN
+        <foreach collection="metricKeys" item="mk" open="(" separator="," close=")">#{mk}</foreach>
+        GROUP BY target_id, metric_key, bucketTime
+        ORDER BY bucketTime ASC
+    </select>
+</mapper>
