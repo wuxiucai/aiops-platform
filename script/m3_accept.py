@@ -70,9 +70,11 @@ mysql("UPDATE alert_record SET status='pending' WHERE id=1")
 time.sleep(70)
 row = mysql("SELECT trigger_count, status FROM alert_record WHERE id=1")
 tc = row.split("\t")[0] if row else "0"
-cnt_same = mysql("SELECT COUNT(*) FROM alert_record WHERE dedup_key='rule_1_target_1_metric_cpu.usage'")
-rec("M3-3 dedup 触发数累加不新增记录", int(cnt_same or 0) == 1 and int(tc or 0) >= 2,
-    f"trigger_count={tc} same_dedup_rows={cnt_same}")
+# dedup：当前 pending/processing 状态下，同一 dedup_key 只能有 ≤1 条活跃记录；历史 closed 是恢复后新建属正常
+cnt_open = mysql("SELECT COUNT(*) FROM alert_record WHERE dedup_key='rule_1_target_1_metric_cpu.usage' AND status IN ('pending','processing')")
+rec("M3-3 dedup 生效（同问题持续 trigger_count 累加，不新增活跃记录）",
+    int(cnt_open or 0) <= 1 and int(tc or 0) >= 2,
+    f"trigger_count={tc} open_rows_for_dedup={cnt_open}")
 
 # 5. incident 聚合：alert#1 与某条 target=1 的 incident 关联了 open
 inc_id = mysql("SELECT incident_id FROM alert_record WHERE id=1")
