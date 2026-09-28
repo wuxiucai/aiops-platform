@@ -6,7 +6,7 @@
     <!-- Logback → Logstash（v2 §8.5）：TCP 5000，json_lines，
          customFields.service 写死为 order-service，与 monitor_target.log_service_name 对应 -->
     <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
-        <destination>127.0.0.1:5000</destination>
+        <destination>10.0.0.91:5000</destination>
         <encoder class="net.logstash.logback.encoder.LogstashEncoder">
             <customFields>{"service":"order-service","env":"dev"}</customFields>
         </encoder>

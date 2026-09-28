@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aiops.module.alert.mapper.AlertRecordMapper">
+
+    <!-- 分页查询（可联表，便于展示规则名/目标名） -->
+    <select id="pageWithNames" resultType="com.aiops.module.alert.entity.AlertRecord">
+        SELECT a.*
+        FROM alert_record a
+        <where>
+            <if test="status != null and status != ''">
+                AND a.status = #{status}
+            </if>
+            <if test="ruleId != null">
+                AND a.rule_id = #{ruleId}
+            </if>
+            <if test="targetId != null">
+                AND a.target_id = #{targetId}
+            </if>
+            <if test="startTime != null">
+                AND a.create_time &gt;= #{startTime}
+            </if>
+            <if test="endTime != null">
+                AND a.create_time &lt;= #{endTime}
+            </if>
+        </where>
+        ORDER BY a.id DESC
+    </select>
+
+    <select id="countSince" resultType="long">
+        SELECT COUNT(*) FROM alert_record WHERE create_time &gt;= #{since}
+    </select>
+
+    <select id="topRecent" resultType="com.aiops.module.alert.entity.AlertRecord">
+        SELECT * FROM alert_record ORDER BY id DESC LIMIT #{limit}
+    </select>
+</mapper>

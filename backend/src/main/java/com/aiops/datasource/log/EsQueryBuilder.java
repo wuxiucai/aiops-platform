@@ -17,6 +17,14 @@ public final class EsQueryBuilder {
     private EsQueryBuilder() {
     }
 
+    /**
+     * term/terms 精确值匹配时落到 logstash 默认 mapping 的 .keyword 子字段。
+     * （远程集群未装 IK 分词器，text 字段 terms 查询永远命中 0 —— M3 实测踩过的坑）
+     */
+    private static String keywordOf(String field) {
+        return field.endsWith(".keyword") ? field : field + ".keyword";
+    }
+
     /** 检索请求参数 */
     public record SearchParams(
             String indexPattern,
@@ -49,14 +57,16 @@ public final class EsQueryBuilder {
         }
 
         List<String> filter = new ArrayList<>();
-        // 时间范围
+        // 时间范围：LocalDateTime 是 +08:00 本地时间；ES range 无 time_zone 参数时按 UTC 解释 → 换算 UTC
+        String startUtc = p.startTime().minusHours(8).format(FMT);
+        String endUtc = p.endTime().minusHours(8).format(FMT);
         filter.add(String.format(
                 "{\"range\":{\"%s\":{\"gte\":\"%s\",\"lte\":\"%s\",\"format\":\"yyyy-MM-dd HH:mm:ss||epoch_millis\"}}}",
-                p.timeField(), p.startTime().format(FMT), p.endTime().format(FMT)));
-        // 级别
+                p.timeField(), startUtc, endUtc));
+        // 级别（logstash 默认 mapping：text + .keyword；terms 精确值必须打 .keyword 子字段）
         if (p.levels() != null && !p.levels().isEmpty()) {
             StringBuilder terms = new StringBuilder("{\"terms\":{\"");
-            terms.append(p.levelField()).append("\":[");
+            terms.append(keywordOf(p.levelField())).append("\":[");
             for (int i = 0; i < p.levels().size(); i++) {
                 if (i > 0) terms.append(',');
                 terms.append('"').append(escape(p.levels().get(i))).append('"');
@@ -64,10 +74,10 @@ public final class EsQueryBuilder {
             terms.append("]}}");
             filter.add(terms.toString());
         }
-        // 服务
+        // 服务（同上，打 .keyword）
         if (p.services() != null && !p.services().isEmpty()) {
             StringBuilder terms = new StringBuilder("{\"terms\":{\"");
-            terms.append(p.serviceField()).append("\":[");
+            terms.append(keywordOf(p.serviceField())).append("\":[");
             for (int i = 0; i < p.services().size(); i++) {
                 if (i > 0) terms.append(',');
                 terms.append('"').append(escape(p.services().get(i))).append('"');
@@ -75,9 +85,9 @@ public final class EsQueryBuilder {
             terms.append("]}}");
             filter.add(terms.toString());
         }
-        // traceId
+        // traceId（term 也需 .keyword）
         if (p.traceId() != null && !p.traceId().isBlank()) {
-            filter.add(String.format("{\"term\":{\"%s\":\"%s\"}}", p.traceIdField(), escape(p.traceId())));
+            filter.add(String.format("{\"term\":{\"%s\":\"%s\"}}", keywordOf(p.traceIdField()), escape(p.traceId())));
         }
 
         // 关键字（must）
@@ -126,9 +136,9 @@ public final class EsQueryBuilder {
         List<String> filter = new ArrayList<>();
         filter.add(String.format(
                 "{\"range\":{\"%s\":{\"gte\":\"%s\",\"lte\":\"%s\",\"format\":\"yyyy-MM-dd HH:mm:ss||epoch_millis\"}}}",
-                p.timeField(), p.startTime().format(FMT), p.endTime().format(FMT)));
+                p.timeField(), p.startTime().minusHours(8).format(FMT), p.endTime().minusHours(8).format(FMT)));
         if (p.levels() != null && !p.levels().isEmpty()) {
-            StringBuilder terms = new StringBuilder("{\"terms\":{\"").append(p.levelField()).append("\":[");
+            StringBuilder terms = new StringBuilder("{\"terms\":{\"").append(keywordOf(p.levelField())).append("\":[");
             for (int i = 0; i < p.levels().size(); i++) {
                 if (i > 0) terms.append(',');
                 terms.append('"').append(escape(p.levels().get(i))).append('"');

@@ -76,6 +76,8 @@ INSERT INTO sys_permission (parent_id, name, perm_type, perms, sort) VALUES
 (201, '日志检索执行', 'B', 'log:search:exec', 1),
 (301, '告警规则写', 'B', 'alert:rule:update', 1),
 (302, '告警处理', 'B', 'alert:record:handle', 1),
+(303, '事件处理', 'B', 'incident:handle', 1),
+(304, '静默写', 'B', 'alert:silence:update', 1),
 (403, '模型配置写', 'B', 'llm:provider:update', 1),
 (701, '用户写', 'B', 'system:user:update', 1)
 ON DUPLICATE KEY UPDATE name=VALUES(name);
@@ -193,6 +195,16 @@ ${alertList}
 ## 一、故障概述 ## 二、影响范围 ## 三、时间线
 ## 四、根因分析 ## 五、处置过程 ## 六、改进措施', 1, 1)
 ON DUPLICATE KEY UPDATE scene_name=VALUES(scene_name);
+
+-- ---------- ES 数据源（M3 前置：指向远程 3 节点集群 10.0.0.91/92/93，无认证） ----------
+INSERT INTO es_datasource (id, name, es_scheme, es_host, es_port, status, is_default, test_result, remark) VALUES
+(1, 'RemoteCluster', 'http', '10.0.0.91', 9200, 1, 1, NULL, 'remote-cluster / no-auth / no-IK-plugin (zifan-linux92, 3 nodes green)')
+ON DUPLICATE KEY UPDATE es_host=VALUES(es_host), es_port=VALUES(es_port), remark=VALUES(remark);
+
+-- es_index_config：用 Logstash 自定义字段映射（@timestamp/message/level/service）
+INSERT INTO es_index_config (id, datasource_id, name, index_pattern, time_field, message_field, level_field, service_field, trace_id_field, default_time_range_hours, enabled) VALUES
+(1, 1, 'aiops-log', 'aiops-log-*', '@timestamp', 'message', 'level', 'service', 'traceId', 24, 1)
+ON DUPLICATE KEY UPDATE index_pattern=VALUES(index_pattern);
 
 -- ---------- 监控分组与目标（§3.1 第4/5条） ----------
 INSERT INTO monitor_group (id, name, parent_id, description, sort) VALUES

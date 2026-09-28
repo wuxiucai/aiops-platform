@@ -4,60 +4,62 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import jakarta.annotation.PostConstruct;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 订单接口：模拟真实业务时序。
- * <p>
- *   POST /api/order/create    下单（生成 orderId、写 INFO 日志、调用 payment-service 通知）
- *   GET  /api/order/{id}      查询订单状态
- *   GET  /api/order/slow?ms=  慢调用，用于触发慢响应告警链路
- * </p>
+ * 持久化：./data/order-db（H2 file），重启数据保留。
  */
 @RestController
 @RequestMapping("/api/order")
 public class OrderController {
 
     private static final Logger log = LoggerFactory.getLogger(OrderController.class);
-
-    /** 内存存储，毕设够用 */
-    private final Map<String, OrderRecord> orders = new ConcurrentHashMap<>();
     private final AtomicLong seq = new AtomicLong(0);
-
     private final WebClient paymentClient;
+    private final JdbcTemplate jdbc;
 
-    public OrderController(@Value("${demo.payment.base-url:http://127.0.0.1:8082}") String paymentBaseUrl) {
+    public OrderController(@Value("${demo.payment.base-url:http://127.0.0.1:8082}") String paymentBaseUrl,
+                           JdbcTemplate jdbcTemplate) {
         this.paymentClient = WebClient.builder().baseUrl(paymentBaseUrl).build();
+        this.jdbc = jdbcTemplate;
     }
 
-    public record OrderRecord(String orderId, long amount, String status, LocalDateTime createTime) {}
+    @PostConstruct
+    public void initSchema() {
+        jdbc.execute(
+            "CREATE TABLE IF NOT EXISTS orders(" +
+            "  order_id  VARCHAR(64) PRIMARY KEY," +
+            "  amount    BIGINT," +
+            "  status    VARCHAR(16)," +
+            "  create_time TIMESTAMP" +
+            ")");
+    }
 
-    /** 下单：立即写 INFO 日志（用于模板提取），并调用 payment-service 形成真实调用链 */
     @PostMapping("/create")
     public Map<String, Object> create(@RequestBody(required = false) Map<String, Object> req) {
         long amount = req == null ? 100L
                 : Long.parseLong(req.getOrDefault("amount", "100").toString());
         String orderId = "ORD" + System.currentTimeMillis() + "-" + seq.incrementAndGet();
-        OrderRecord record = new OrderRecord(orderId, amount, "PENDING", LocalDateTime.now());
-        orders.put(orderId, record);
+        LocalDateTime now = LocalDateTime.now();
+        jdbc.update("INSERT INTO orders(order_id,amount,status,create_time) VALUES(?,?,?,?)",
+                orderId, amount, "PENDING", java.sql.Timestamp.valueOf(now));
         String traceId = UUID.randomUUID().toString().substring(0, 8);
 
         log.info("订单创建成功: orderId={}, amount={}, traceId={}", orderId, amount, traceId);
 
-        // 内部调用 payment-service（拓扑真实感来源）
-        Map<String, Object> payReq = Map.of(
-                "orderId", orderId,
-                "amount", amount,
-                "traceId", traceId);
+        Map<String, Object> payReq = Map.of("orderId", orderId, "amount", amount, "traceId", traceId);
         try {
             Map<String, Object> payResp = paymentClient.post()
                     .uri("/api/pay/notify")
@@ -66,41 +68,36 @@ public class OrderController {
                     .retrieve()
                     .bodyToMono(Map.class)
                     .block(Duration.ofSeconds(5));
-            orders.put(orderId, new OrderRecord(orderId, amount, "PAID", record.createTime()));
+            jdbc.update("UPDATE orders SET status=? WHERE order_id=?", "PAID", orderId);
             log.info("支付回调完成: orderId={}, payResp={}", orderId, payResp);
-            return Map.of(
-                    "code", 200,
-                    "orderId", orderId,
-                    "status", "PAID",
-                    "traceId", traceId,
-                    "payResp", payResp);
+            return Map.of("code", 200, "orderId", orderId, "status", "PAID",
+                    "traceId", traceId, "payResp", payResp);
         } catch (Exception e) {
-            orders.put(orderId, new OrderRecord(orderId, amount, "PAY_FAIL", record.createTime()));
+            jdbc.update("UPDATE orders SET status=? WHERE order_id=?", "PAY_FAIL", orderId);
             log.error("支付回调失败: orderId={}, err={}", orderId, e.getMessage());
-            return Map.of(
-                    "code", 500,
-                    "orderId", orderId,
-                    "status", "PAY_FAIL",
-                    "traceId", traceId,
-                    "error", e.getMessage() == null ? "" : e.getMessage());
+            return Map.of("code", 500, "orderId", orderId, "status", "PAY_FAIL",
+                    "traceId", traceId, "error", e.getMessage() == null ? "" : e.getMessage());
         }
     }
 
-    /** 查询订单 */
     @GetMapping("/{id}")
     public Map<String, Object> get(@PathVariable("id") String id) {
-        OrderRecord r = orders.get(id);
-        if (r == null) {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT order_id, amount, status, create_time FROM orders WHERE order_id=?", id);
+        if (rows.isEmpty()) {
             return Map.of("code", 404, "msg", "order not found: " + id);
         }
+        Map<String, Object> r = rows.get(0);
+        String ct = r.get("create_time") == null ? "" :
+                ((java.sql.Timestamp) r.get("create_time")).toLocalDateTime()
+                        .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         return Map.of("code", 200, "order", Map.of(
-                "orderId", r.orderId(),
-                "amount", r.amount(),
-                "status", r.status(),
-                "createTime", r.createTime().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
+                "orderId", r.get("order_id"),
+                "amount", r.get("amount"),
+                "status", r.get("status"),
+                "createTime", ct));
     }
 
-    /** 慢调用模拟：返回内容包含本次注入的延迟参数，便于告警页查看故障描述 */
     @GetMapping("/slow")
     public Map<String, Object> slow(@RequestParam(value = "ms", defaultValue = "3000") long ms)
             throws InterruptedException {

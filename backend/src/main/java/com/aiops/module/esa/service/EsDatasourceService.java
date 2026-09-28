@@ -90,10 +90,10 @@ public class EsDatasourceService {
             int nodeCount = health.path("number_of_nodes").asInt();
             String status = health.path("status").asText();
 
-            // 探测 IK 分词器（§9.3）
+            // 探测 IK 分词器（§9.3）：_cat/plugins 是纯文本输出
             String ikInfo = "unknown";
             try {
-                String plugins = esLogClient.get(baseUrl, "/_cat/plugins");
+                String plugins = esLogClient.get(baseUrl, "/_cat/plugins?format=json&h=component");
                 ikInfo = plugins.contains("analysis-ik") ? "ik-installed" : "ik-not-installed";
             } catch (Exception ignored) {
             }

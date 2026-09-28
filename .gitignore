@@ -9,3 +9,6 @@ frontend/token.txt
 backend/login.json
 backend/token.txt
 script/__pycache__/
+demo-service/**/data/
+data/
+logs/

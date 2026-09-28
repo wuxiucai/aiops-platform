@@ -72,7 +72,7 @@ public class EsFieldProbe {
         if (lower.contains("level") || lower.contains("severity")) {
             return "levelField";
         }
-        if (lower.contains("message") || lower.contains("msg") || lower.contains("log")) {
+        if (lower.equals("message") || lower.endsWith(".message")) {
             return "messageField";
         }
         if (lower.contains("service") || lower.contains("app") || lower.contains("application")) {
