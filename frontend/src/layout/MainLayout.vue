@@ -15,7 +15,8 @@
             <el-icon><component :is="menu.icon || 'Menu'" /></el-icon>
             <span>{{ menu.name }}</span>
           </template>
-          <el-menu-item v-for="child in menu.children || []" :key="child.id" :index="menu.path + child.path">
+          <el-menu-item v-for="child in menu.children || []" :key="child.id"
+                        :index="child.path.startsWith('/') ? child.path : menu.path + child.path">
             <el-icon><component :is="child.icon || 'Document'" /></el-icon>
             <span>{{ child.name }}</span>
           </el-menu-item>

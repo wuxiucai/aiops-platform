@@ -30,7 +30,8 @@ export function registerDynamicRoutes(menus) {
   menus.forEach(menu => {
     (menu.children || []).forEach(child => {
       if (!child.path || !child.component) return
-      const fullPath = menu.path + child.path // 如 '/monitor' + '/dashboard'
+      // 兼容两种数据：子路由 path 为绝对路径（/monitor/dashboard）或相对路径（/dashboard）
+      const fullPath = child.path.startsWith('/') ? child.path : (menu.path + child.path)
       if (router.hasRoute(fullPath)) return
       const component = viewModules[`../views/${child.component}.vue`]
       if (!component) {
