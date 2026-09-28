@@ -58,4 +58,29 @@ public class JwtUtils {
             return null;
         }
     }
+
+    /** 滑动续期门槛：剩余不足该毫秒数即续发（30 分钟） */
+    private static final long REFRESH_THRESHOLD_MS = 30 * 60_000L;
+
+    /**
+     * 若 token 剩余有效期 < 30min 则返回新 token，否则 Optional.empty()。
+     * 过期/非法 token 返回 empty。
+     */
+    public java.util.Optional<String> refreshIfNearExpiry(String token) {
+        try {
+            Claims claims = Jwts.parser().verifyWith(key).build()
+                    .parseSignedClaims(token).getPayload();
+            long remain = claims.getExpiration().getTime() - System.currentTimeMillis();
+            if (remain < REFRESH_THRESHOLD_MS) {
+                Long userId = claims.get("userId", Long.class);
+                String username = claims.get("username", String.class);
+                @SuppressWarnings("unchecked")
+                List<String> roles = (List<String>) claims.get("roles", List.class);
+                return java.util.Optional.of(createToken(userId, username, roles));
+            }
+            return java.util.Optional.empty();
+        } catch (Exception e) {
+            return java.util.Optional.empty();
+        }
+    }
 }

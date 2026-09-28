@@ -12,8 +12,10 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -25,6 +27,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/system/role")
 @RequiredArgsConstructor
+@Validated
 public class SysRoleController {
 
     private final SysRoleMapper sysRoleMapper;
@@ -50,7 +53,9 @@ public class SysRoleController {
     @Data
     public static class RoleSaveRequest {
         private Long id;
+        @NotBlank(message = "角色编码不能为空")
         private String roleCode;
+        @NotBlank(message = "角色名称不能为空")
         private String roleName;
         private String description;
         private Integer status;
@@ -61,7 +66,7 @@ public class SysRoleController {
     @RequirePerm("system:role:add")
     @OperLog(module = "system", operation = "新增角色")
     @PostMapping
-    public Result<Void> add(@RequestBody RoleSaveRequest req) {
+    public Result<Void> add(@RequestBody @Validated RoleSaveRequest req) {
         Long cnt = sysRoleMapper.selectCount(new LambdaQueryWrapper<SysRole>()
                 .eq(SysRole::getRoleCode, req.getRoleCode()));
         if (cnt > 0) {
@@ -81,7 +86,7 @@ public class SysRoleController {
     @RequirePerm("system:role:update")
     @OperLog(module = "system", operation = "修改角色")
     @PutMapping
-    public Result<Void> update(@RequestBody RoleSaveRequest req) {
+    public Result<Void> update(@RequestBody @Validated RoleSaveRequest req) {
         SysRole role = new SysRole();
         role.setId(req.getId());
         role.setRoleName(req.getRoleName());

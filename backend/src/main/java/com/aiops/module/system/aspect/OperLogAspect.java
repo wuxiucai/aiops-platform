@@ -39,7 +39,6 @@ public class OperLogAspect {
         SysOperLog logEntity = new SysOperLog();
         logEntity.setModule(operLog.module());
         logEntity.setOperation(operLog.operation());
-        logEntity.setMethod(pjp.getSignature().getDeclaringTypeName() + "#" + pjp.getSignature().getName());
         logEntity.setCreateTime(LocalDateTime.now());
 
         LoginUser user = UserContext.get();
@@ -55,7 +54,9 @@ public class OperLogAspect {
             logEntity.setIp(request.getRemoteAddr());
             logEntity.setMethod(request.getMethod());
         }
-        logEntity.setParams(desensitize(pjp.getArgs()));
+        // controller 方法签名并入 params 头部，避免出现 setMethod 被覆盖的歧义
+        String handler = pjp.getSignature().getDeclaringTypeName() + "#" + pjp.getSignature().getName();
+        logEntity.setParams("handler=" + handler + " " + desensitize(pjp.getArgs()));
 
         try {
             Object result = pjp.proceed();

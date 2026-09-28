@@ -65,6 +65,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             write401(response, "凭证无效或已过期");
             return;
         }
+        // 滑动续期：token 剩余有效期 < 30min 时在响应头发新 token，前端透明替换
+        jwtUtils.refreshIfNearExpiry(token)
+                .ifPresent(newToken -> response.setHeader("X-Refresh-Token", newToken));
         // 填充权限码（缓存 60s）
         Object[] cached = permCache.get(user.getUserId());
         if (cached != null && System.currentTimeMillis() - (long) cached[1] < PERM_CACHE_MS) {

@@ -108,7 +108,7 @@ INSERT INTO metric_definition (metric_key, metric_name, unit, category, value_ty
 ('disk.write.bytes', '磁盘写速率', 'KB/s', 'disk', 'gauge', '磁盘写入速率', NULL),
 ('net.rx.bytes', '网络接收速率', 'KB/s', 'net', 'gauge', '网卡接收速率', NULL),
 ('net.tx.bytes', '网络发送速率', 'KB/s', 'net', 'gauge', '网卡发送速率', NULL),
-('net.conn.count', '网络连接数', '个', 'net', 'gauge', 'TCP连接数', NULL),
+('net.conn.count', '网络连接数', '个', 'net', 'gauge', 'TCP连接数（Linux下精确；Windows下为netstat ESTABLISHED近似）', NULL),
 ('jvm.heap.usage', 'JVM堆使用率', '%', 'jvm', 'gauge', 'JVM堆内存使用率', 85.0000),
 ('jvm.gc.count', 'GC次数', '次', 'jvm', 'counter', 'GC累计次数', NULL),
 ('jvm.gc.time', 'GC耗时', 'ms', 'jvm', 'counter', 'GC累计耗时', NULL),
@@ -118,7 +118,7 @@ INSERT INTO metric_definition (metric_key, metric_name, unit, category, value_ty
 ('app.rt.p95', 'P95响应时间', 'ms', 'business', 'gauge', 'P95响应时间', NULL),
 ('app.error.rate', '错误率', '%', 'business', 'gauge', 'HTTP错误率', 5.0000),
 ('app.thread.active', '活跃线程数', '个', 'business', 'gauge', '应用活跃线程数', NULL)
-ON DUPLICATE KEY UPDATE metric_name=VALUES(metric_name);
+ON DUPLICATE KEY UPDATE metric_name=VALUES(metric_name), description=VALUES(description);
 
 -- ---------- LLM 提示词模板（§7 7 场景，version=1） ----------
 INSERT INTO llm_prompt_template (scene_code, scene_name, system_prompt, user_prompt_tpl, version, enabled) VALUES
@@ -206,7 +206,13 @@ INSERT INTO monitor_target (id, name, target_type, ip, port, os, group_id, statu
 (3, 'payment-service', 'service', '127.0.0.1', 8082, 'Windows', 2, 1, 'payment-service', '演示支付服务')
 ON DUPLICATE KEY UPDATE name=VALUES(name);
 
--- 默认采集任务：本机核心指标 30s
+-- 默认采集任务：本机核心指标 30s（覆盖尽量多的 metric，便于累计 3000 条 metric_data）
 INSERT INTO collect_task (target_id, metric_keys, interval_sec, status) VALUES
-(1, '["cpu.usage","mem.usage","disk.usage"]', 30, 1)
+(1, '["cpu.usage","cpu.load","mem.usage","mem.used","swap.usage","disk.usage","net.conn.count"]', 30, 1)
+ON DUPLICATE KEY UPDATE target_id=target_id;
+
+-- 演示服务通过 Actuator 通道采集（jvm.heap.usage / app.rt.avg 等），30s 周期
+INSERT INTO collect_task (target_id, metric_keys, interval_sec, status) VALUES
+(2, '["jvm.heap.usage","jvm.thread.count","app.qps","app.rt.avg"]', 30, 1),
+(3, '["jvm.heap.usage","jvm.thread.count","app.qps","app.rt.avg"]', 30, 1)
 ON DUPLICATE KEY UPDATE target_id=target_id;

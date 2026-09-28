@@ -22,6 +22,10 @@ public class EsLogClient {
 
     private final WebClient.Builder webClientBuilder = WebClient.builder();
 
+    /** 显式禁止的写操作端点（先查黑名单，防止白名单关键词被子串绕过） */
+    private static final Set<String> DENIED_PATH_KEYWORDS = Set.of(
+            "_bulk", "_index", "_update", "_delete");
+
     private static final Set<String> ALLOWED_PATH_KEYWORDS = Set.of(
             "_search", "_mapping", "_cat", "_cluster", "_count", "_msearch", "_field_caps");
 
@@ -30,9 +34,15 @@ public class EsLogClient {
         if (method == HttpMethod.DELETE || method == HttpMethod.PUT) {
             throw new BizException("ES只读");
         }
-        // 集群根路径与 _plugins/_nodes 等只读信息放行
+        // 集群根路径只读信息放行
         if (path.equals("/") || path.isEmpty()) {
             return;
+        }
+        // 黑名单优先：任何写端点直接拒绝（含白名单关键词伪装场景）
+        for (String denied : DENIED_PATH_KEYWORDS) {
+            if (path.contains(denied)) {
+                throw new BizException("ES只读");
+            }
         }
         boolean allowed = ALLOWED_PATH_KEYWORDS.stream().anyMatch(path::contains)
                 || path.startsWith("/_cat") || path.startsWith("/_cluster");

@@ -8,3 +8,4 @@ frontend/token.txt
 .DS_Store
 backend/login.json
 backend/token.txt
+script/__pycache__/

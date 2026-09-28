@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <!-- Logback → Logstash（v2 §8.5）：TCP 5000，json_lines，
+         customFields.service 写死为 order-service，与 monitor_target.log_service_name 对应 -->
+    <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
+        <destination>127.0.0.1:5000</destination>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <customFields>{"service":"order-service","env":"dev"}</customFields>
+        </encoder>
+        <!-- Logstash 未启动时，报错不要拖垮主业务 -->
+        <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+        </throwableConverter>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="LOGSTASH"/>
+    </root>
+
+    <logger name="com.aiops.demo.order" level="DEBUG"/>
+</configuration>

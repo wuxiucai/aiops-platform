@@ -2,6 +2,7 @@ package com.aiops.datasource.metric;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import oshi.software.os.InternetProtocolStats;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -18,6 +19,9 @@ public class OshiCollector implements MetricCollector {
     private final oshi.hardware.CentralProcessor cpu = systemInfo.getHardware().getProcessor();
     private final oshi.hardware.GlobalMemory memory = systemInfo.getHardware().getMemory();
     private final oshi.software.os.OperatingSystem os = systemInfo.getOperatingSystem();
+
+    /** TCP 状态采样（Windows 下用 netstat ESTABLISHED 近似；Linux 用 OSHI 精确值） */
+    private final InternetProtocolStats ipStats = os.getInternetProtocolStats();
 
     /** 上一次 CPU 采样（OSHI 需要 diff 计算） */
     private long[] prevTicks = cpu.getSystemCpuLoadTicks();
@@ -58,7 +62,7 @@ public class OshiCollector implements MetricCollector {
                     }
                     yield round(maxUsage * 100);
                 }
-                case "net.conn.count" -> round(os.getFileSystem().getOpenFileDescriptors() * 0.0 + 0);
+                case "net.conn.count" -> netConnCount();
                 default -> null;
             };
             if (value != null) {
@@ -75,5 +79,41 @@ public class OshiCollector implements MetricCollector {
 
     private double round(double v) {
         return Math.round(v * 100) / 100.0;
+    }
+
+    /**
+     * net.conn.count：优先 OSHI 精确值（Linux）；Windows 下 OSHI 该指标为 0，
+     * 降级用 `netstat -an | Select-String ESTABLISHED` 统计近似值（近似值，实际意义是
+     * "当今处于 ESTABLISHED 状态的连接数"，已在 metric_definition.description 注明）。
+     */
+    private double netConnCount() {
+        // Linux 下 OSHI 提供精确值，直接用
+        try {
+            InternetProtocolStats.TcpStats tcp = ipStats.getTCPv4Stats();
+            long est = tcp.getConnectionsEstablished();
+            if (est > 0) {
+                return est;
+            }
+        } catch (Exception ignored) {
+        }
+        // Windows 退回 netstat 近似：用 PowerShell 在单进程内完成，避免 cmd pipe 编码问题
+        String osName = System.getProperty("os.name", "").toLowerCase();
+        if (!osName.contains("win")) {
+            return 0;
+        }
+        try {
+            ProcessBuilder pb = new ProcessBuilder("powershell.exe", "-NoProfile", "-Command",
+                    "(netstat -an | Select-String 'ESTABLISHED').Count");
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            String out = new String(p.getInputStream().readAllBytes()).trim();
+            p.waitFor();
+            if (!out.isEmpty() && out.matches("\\d+")) {
+                return Double.parseDouble(out);
+            }
+        } catch (Exception e) {
+            log.warn("[Metric] net.conn.count powershell 采样失败: {}", e.getMessage());
+        }
+        return 0;
     }
 }
