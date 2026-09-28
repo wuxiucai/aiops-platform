@@ -54,22 +54,13 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../store/user'
-import { registerDynamicRoutes } from '../router'
 
 const userStore = useUserStore()
 const router = useRouter()
 
-onMounted(async () => {
-  if (!userStore.userInfo) {
-    await userStore.fetchUserInfo()
-  }
-  if (userStore.menus.length) {
-    registerDynamicRoutes(userStore.menus)
-  }
-})
+// 用户信息与动态路由已由 router.beforeEach 全局守卫完成加载注册
 
 async function handleCommand(cmd) {
   if (cmd === 'logout') {

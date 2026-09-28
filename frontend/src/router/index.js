@@ -2,22 +2,17 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { getToken } from '../utils/auth'
 
 // 静态路由：登录页与主布局；业务路由由后端权限树动态注册
-export const staticRoutes = [
-  {
-    path: '/login',
-    name: 'Login',
-    component: () => import('../views/Login.vue')
-  }
-]
-
-export const viewModules = import.meta.glob('../views/**/*.vue')
-
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    ...staticRoutes,
+    {
+      path: '/login',
+      name: 'Login',
+      component: () => import('../views/Login.vue')
+    },
     {
       path: '/',
+      name: 'Main',
       component: () => import('../layout/MainLayout.vue'),
       redirect: '/monitor/dashboard',
       children: []
@@ -25,36 +20,57 @@ const router = createRouter({
   ]
 })
 
-/** 根据后端菜单树递归注册动态路由 */
+// 视图组件懒加载映射：key 形如 '../views/monitor/Dashboard.vue'
+export const viewModules = import.meta.glob('../views/**/*.vue')
+
+let dynamicRegistered = false
+
+/** 根据后端菜单树递归注册动态路由（挂在 MainLayout 下，保持布局） */
 export function registerDynamicRoutes(menus) {
-  const mainRoute = router.options.routes.find(r => r.path === '/')
-  menus
-    .filter(m => m.path && m.component && m.children && m.children.length >= 0)
-    .forEach(menu => {
-      (menu.children || []).forEach(child => {
-        if (!child.path || !child.component) return
-        const full = menu.path + child.path
-        if (router.hasRoute(full)) return
-        mainRoute.children.push({
-          path: full,
-          name: full,
-          component: viewModules[`../views/${child.component}.vue`],
-          meta: { title: child.name, perms: child.perms }
-        })
+  menus.forEach(menu => {
+    (menu.children || []).forEach(child => {
+      if (!child.path || !child.component) return
+      const fullPath = menu.path + child.path // 如 '/monitor' + '/dashboard'
+      if (router.hasRoute(fullPath)) return
+      const component = viewModules[`../views/${child.component}.vue`]
+      if (!component) {
+        console.warn('[router] 视图组件不存在:', child.component)
+        return
+      }
+      router.addRoute('Main', {
+        path: fullPath,
+        name: fullPath,
+        component,
+        meta: { title: child.name, perms: child.perms }
       })
     })
-  mainRoute.children.forEach(r => {
-    if (!router.hasRoute(r.name)) router.addRoute(r)
   })
+  dynamicRegistered = true
 }
 
-router.beforeEach(to => {
-  const token = getToken()
+router.beforeEach(async to => {
+  // 登录页直接放行
   if (to.path === '/login') {
     return true
   }
-  if (!token) {
+  // 未登录 → 跳登录
+  if (!getToken()) {
     return { path: '/login', query: { redirect: to.fullPath } }
+  }
+  // 已登录但权限树未加载（首次进入或刷新页面）→ 拉取并注册动态路由后重新解析
+  const { useUserStore } = await import('../store/user')
+  const userStore = useUserStore()
+  if (!userStore.menus.length) {
+    try {
+      await userStore.fetchUserInfo()
+    } catch (e) {
+      return { path: '/login' }
+    }
+  }
+  if (!dynamicRegistered && userStore.menus.length) {
+    registerDynamicRoutes(userStore.menus)
+    // 重新解析当前目标，避免匹配不到刚注册的路由
+    return { path: to.fullPath, replace: true }
   }
   return true
 })
