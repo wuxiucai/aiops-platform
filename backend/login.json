@@ -1,1 +1,0 @@
-{"code":200,"msg":"success","data":{"token":"eyJhbGciOiJIUzUxMiJ9.eyJyb2xlcyI6WyJBRE1JTiJdLCJ1c2VySWQiOjEsInVzZXJuYW1lIjoiYWRtaW4iLCJpYXQiOjE3OTA1Njk2NzEsImV4cCI6MTc5MDYxMjg3MX0.CDmgWO_1IyuEXLE11QkjcAwHLQ418T7zkDWxOlmOEJ6iZrvdWoP_1i_d0JirAmMFzuvKVTTYfkWO8ZIm8BtQwQ","userId":1,"username":"admin","nickname":"管理员","roles":["ADMIN"],"perms":["*:*:*"]}}

@@ -6,3 +6,5 @@ backend/logs/
 frontend/login.json
 frontend/token.txt
 .DS_Store
+backend/login.json
+backend/token.txt
