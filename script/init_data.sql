@@ -74,12 +74,21 @@ INSERT INTO sys_permission (parent_id, name, perm_type, perms, sort) VALUES
 (102, '监控对象写', 'B', 'monitor:target:update', 1),
 (104, '数据源写', 'B', 'es:datasource:update', 1),
 (201, '日志检索执行', 'B', 'log:search:exec', 1),
+(202, '日志模板更新', 'B', 'log:template:update', 1),
+(203, '日志异常处理', 'B', 'log:anomaly:handle', 1),
+(204, '日志检测规则更新', 'B', 'log:rule:update', 1),
 (301, '告警规则写', 'B', 'alert:rule:update', 1),
 (302, '告警处理', 'B', 'alert:record:handle', 1),
 (303, '事件处理', 'B', 'incident:handle', 1),
 (304, '静默写', 'B', 'alert:silence:update', 1),
 (403, '模型配置写', 'B', 'llm:provider:update', 1),
 (701, '用户写', 'B', 'system:user:update', 1)
+ON DUPLICATE KEY UPDATE name=VALUES(name);
+
+-- Drain 模板提取演示/在线调参（§7.2 论文核心算法演示入口）
+INSERT INTO sys_permission (parent_id, name, perm_type, perms, sort) VALUES
+(202, 'Drain模板提取演示', 'B', 'log:drain:edit', 2),
+(202, 'Drain参数在线调优', 'B', 'log:drain:params', 3)
 ON DUPLICATE KEY UPDATE name=VALUES(name);
 
 -- ---------- 角色-权限（ADMIN=全部；SRE=除系统管理写外全部；VIEWER=仅菜单+list） ----------

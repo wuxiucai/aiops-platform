@@ -99,19 +99,33 @@ has_real = any(r.get("service") == "order-service" and "orderId=" in (r.get("mes
 rec("M3-10 日志内容来自真实索引", has_real,
     f"sample={(recs[0].get('message','')[:40] if recs else 'NONE')}")
 
-# 8. 静默：target=1 静默后，rule#1 再触发应 closed，不新增 sys_message
-msg_cnt_before = mysql("SELECT COUNT(*) FROM sys_message")
+# 8. 静默：P0 修复——用独立 dedup_key 隔离，不再与前面测试用 id=1 共享生命周期；
+#   新建独立 target=99 的规则 → 静默覆盖 target=99 → 触发它 → 该 alert 的 status 必须 closed
+#   先清掉旧测试残留
+mysql("UPDATE alert_silence SET status=0 WHERE name='M3验收静默' OR name LIKE 'M3静默%'")
+http("POST", B + "/api/alert/rule",
+     {"name": "M3静默专用规则", "targetId": 99, "groupId": 1, "metricKey": "cpu.usage",
+      "ruleType": "static", "operator": "gt", "threshold": 1, "durationSec": 30,
+      "level": "WARN", "notifyChannels": "[\"inapp\"]", "enabled": 1}, tok=tok)
+# 拿 rule id（最新的）
+new_rule_id = mysql("SELECT id FROM alert_rule ORDER BY id DESC LIMIT 1").strip()
+# 给 target=99 造数据：直接插 metric_data（不需要真能跑的 agent）
+now_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+for i in range(5):
+    mysql("INSERT INTO metric_data (target_id, metric_key, metric_value, collect_time) "
+          f"VALUES (99, 'cpu.usage', 50.0, DATE_SUB('{now_str}', INTERVAL {i*9} SECOND))")
+# 覆盖 target=99 的静默（先删掉已有的）
+mysql("DELETE FROM alert_silence WHERE target_id=99 AND status=1")
 http("POST", B + "/api/alert/silence",
-     {"name": "M3验收静默", "targetId": 1,
+     {"name": "M3静默专用", "targetId": 99,
       "startTime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 3600)),
       "endTime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() + 3600)),
-      "reason": "M3验收", "status": 1}, tok=tok)
-mysql("UPDATE alert_record SET status='pending' WHERE id=1")
-time.sleep(70)
-st1 = mysql("SELECT status FROM alert_record WHERE id=1")
-msg_cnt_after = mysql("SELECT COUNT(*) FROM sys_message")
-# 静默期间既有逻辑：更新 existed.status=closed，不发新通知（但 alert#2 可能新建消息，所以容差）
-rec("M3-5 静默命中 → status=closed", st1 == "closed", f"status={st1}")
+      "reason": "M3-5专用", "status": 1}, tok=tok)
+time.sleep(70)  # 等 AlertDetectJob 跑
+row99 = mysql(f"SELECT status, trigger_count FROM alert_record WHERE dedup_key='rule_{new_rule_id}_target_99_metric_cpu.usage' ORDER BY id DESC LIMIT 1")
+status99 = row99.split("\t")[0] if row99 else ""
+rec("M3-5 静默命中 → status=closed（独立 target=99 dedup_key）",
+    status99 == "closed", f"rule={new_rule_id} status={status99}")
 
 print()
 print("=" * 60)

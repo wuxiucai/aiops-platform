@@ -43,10 +43,21 @@ aiops:
     jwt-secret: ${JWT_SECRET:aiops-platform-dev-secret-key-change-me-in-prod-2027-thesis-0123456789-abcdef}
     aes-key: ${AES_KEY:16bytes-1234abcd}
     jwt-expire-hours: 12
+  # Drain 日志模板提取算法默认参数（§7.2 论文核心算法 §7.2）。
+  # 任何参数变更都会触发该 (datasourceId, indexConfigId) 解析器的重建（见 DrainService.updateParams）。
   drain:
+    # 前缀树最大深度。第 1 层 length（token 数），第 2 层 firstToken（可能 <*> 桶），
+    # 第 3 ~ depth 层按 token 进入子节点。>=3，经典默认 4。
     depth: 4
-    sim-threshold: 0.5
+    # 模板相似度阈值 simTh，(0,1)。SeqDist = 同位置相同 token 数 / max(len1,len2)，
+    # 模板中的 <*> 不计入分母；>= simTh 视为同一模板。
+    sim-th: 0.4
+    # 每个内部节点的最大子节点数，超过则归入 <*> 桶，防止高基数 token 打爆树
     max-children: 100
+    # 单解析器允许的最大 cluster 数；超出后整树清空（简化版 LRU 兜底）
+    max-cluster: 1000
+    # 空白之外的额外分隔符。出现于整行均被替换为空格后再分词
+    extra-delimiters: ",=|:()[]{}\"'"
   metric:
     retention-days: 30
   log:

@@ -51,8 +51,20 @@ public class EsLogClient {
         }
     }
 
+    /**
+     * path normalize: caller may pass "aiops-log-*\/_search" (no leading slash),
+     * so that baseUrl + path always parses correctly.
+     */
+    private static String norm(String path) {
+        if (path == null || path.isBlank()) {
+            return "/";
+        }
+        return path.startsWith("/") ? path : "/" + path;
+    }
+
     /** GET 请求（连通测试/_cat/_mapping 等） */
     public String get(String baseUrl, String path) {
+        path = norm(path);
         assertReadOnly(path, HttpMethod.GET);
         long start = System.currentTimeMillis();
         try {
@@ -74,6 +86,7 @@ public class EsLogClient {
 
     /** POST _search 请求 */
     public String postSearch(String baseUrl, String path, String jsonBody) {
+        path = norm(path);
         assertReadOnly(path, HttpMethod.POST);
         if (!path.contains("_search") && !path.contains("_msearch") && !path.contains("_count")) {
             throw new BizException("ES只读");
