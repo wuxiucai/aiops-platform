@@ -2,7 +2,7 @@
 
 - **完成时间**：2026-09-30
 - **涉及模块**：`module/log`（Drain / 检索 / 模板 / 异常 / 规则 / AI 解读）、`schedule`（LogTemplateJob / LogDetectJob）、`datasource/log`（EsLogClient / EsQueryBuilder）、`demo-service`（FaultController）、前端 `views/log/*`
-- **自述完成度**：**92%**（14/15 验收项 PASS，1 项待审查方提供 LLM key）
+- **自述完成度**：**95%**（M4 验收 7/8 PASS；M3 回归 10/10 PASS；仅 M4-13 待 LLM key）
 - **启动方式**：
   ```
   # 后端
@@ -35,6 +35,9 @@
 | 2 | `/demo/fault/error-log` 打 200 条 ERROR → 模板页见模板 + `new_template` 异常 | ✅ | 1200 条 → 6 模板 + 235 条 `new_template` 异常 |
 | 3 | 模板趋势曲线可读 | ✅ | `log_template_stat` 有窗口数据；`GET /api/log/template/{id}/trend` 返回 200 |
 | 4 | Drain 参数调优接口可在线改 | ✅ | `POST /api/log/drain/params` 生效，`GET` 回读 `currentClusterCount=7` |
+
+> **M4 最终验收结果：7/8 PASS**（M4-13 唯一 FAIL，原因见 §七）
+> **M3 回归验收：10/10 PASS**（原 9/10，M3-3 的 P0 缺陷已在本轮修复）
 
 ## 二、审查方追加 15 项（M4-9 ~ M4-15）
 
@@ -97,6 +100,17 @@
    - 现象：MyBatis SQL DEBUG 日志每 3 分钟 1000+ 条，Drain 首次全量时产生 142 个 SQL 模板
    - 修复：`logback-spring.xml` 把 8 个 mapper 包压到 WARN
    - 效果：每 3 分钟从 1000+ 条降到 40 条真实业务日志
+
+7. **duration_sec 判定不适配采样间隔**（P0，导致新规则永不触发）
+   - 现象：验证自动恢复时新建 `jvm.heap.usage > 0.1` 规则，70 秒内一次都没触发
+   - 根因：`duration_sec=30`（后改 5）时窗口 `now-30s ~ now` 内不足 2 个采样点（采样间隔也是 30s），被 `if (windowData.size() < 2) return false` 拦住
+   - 修复：窗口内不足 2 点时退化为"最近 2 个采样点是否都越界"，抽出 `matchesAll()` 复用
+
+8. **僵尸活跃告警无收尾**（P0，M3-3 失败根因）
+   - 现象：`rule_1_target_1_metric_cpu.usage` 下积压 6 条 `pending` 记录（可追溯到 9/28）
+   - 根因：dedup 只认"10 分钟内触发过"的记录，断档超 10 分钟后新建，旧记录永久滞留
+   - 修复：新建告警前把同 `dedup_key` 下的旧活跃记录置 `resolved`
+   - 效果：m3_accept M3-3 从 FAIL → PASS（`alert#266 trigger_count 1→3, open_rows=1`）
 
 ## 六、数据库现状（M7 演示素材）
 
