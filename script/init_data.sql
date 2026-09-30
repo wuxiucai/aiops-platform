@@ -132,7 +132,8 @@ INSERT INTO metric_definition (metric_key, metric_name, unit, category, value_ty
 ON DUPLICATE KEY UPDATE metric_name=VALUES(metric_name), description=VALUES(description);
 
 -- ---------- LLM 提示词模板（§7 7 场景，version=1） ----------
-INSERT INTO llm_prompt_template (scene_code, scene_name, system_prompt, user_prompt_tpl, version, enabled) VALUES
+-- M5 审查方约束：7 场景必须含 output_schema（JSON Schema），供 OutputSchemaValidator 用 JSON Schema 标准校验。
+INSERT INTO llm_prompt_template (scene_code, scene_name, system_prompt, user_prompt_tpl, output_schema, version, enabled) VALUES
 ('alert_explain', '告警解读',
 '你是资深SRE。基于告警信息和指标摘要，用简洁中文解释告警。严格输出JSON。',
 '【告警】标题：${title} / 级别：${level} / 对象：${targetName}(${ip})
@@ -144,7 +145,8 @@ INSERT INTO llm_prompt_template (scene_code, scene_name, system_prompt, user_pro
 【相关日志摘要】${logTemplateSummary}
 
 输出JSON：
-{"summary":"一句话说明发生了什么（30字内）","severityAssessment":"高/中/低","possibleCauses":["..."],"logEvidence":"日志中支持该判断的证据（若无则说明）","impact":"可能影响的业务范围","suggestions":["..."],"needImmediateAction":true,"confidence":0.8}', 1, 1),
+{"summary":"一句话说明发生了什么（30字内）","severityAssessment":"高/中/低","possibleCauses":["..."],"logEvidence":"日志中支持该判断的证据（若无则说明）","impact":"可能影响的业务范围","suggestions":["..."],"needImmediateAction":true,"confidence":0.8}',
+'{"type":"object","required":["summary","severityAssessment","possibleCauses","suggestions"],"properties":{"summary":{"type":"string","minLength":5},"severityAssessment":{"enum":["高","中","低"]},"possibleCauses":{"type":"array","minItems":1},"suggestions":{"type":"array","minItems":1},"confidence":{"type":"number","minimum":0,"maximum":1}},"additionalProperties":true}', 1, 1),
 ('nl2query', '监控问答NL2Query',
 '你是数据查询助手，将自然语言转为结构化查询。可用指标：${metricList} 可用对象：${targetList}。严格输出JSON。',
 '问题：${question}
@@ -226,6 +228,92 @@ INSERT INTO monitor_target (id, name, target_type, ip, port, os, group_id, statu
 (2, 'order-service', 'service', '127.0.0.1', 8081, 'Windows', 2, 1, 'order-service', '演示订单服务'),
 (3, 'payment-service', 'service', '127.0.0.1', 8082, 'Windows', 2, 1, 'payment-service', '演示支付服务')
 ON DUPLICATE KEY UPDATE name=VALUES(name);
+
+-- ========== M5 补充约束 (1)：7 场景 llm_prompt_template 全量替换（含 output_schema） ==========
+-- 审查方要求：alert_explain / root_cause / log_explain / nl2query / log_summary / report / similar_case_input
+-- REPLACE INTO 由 uk_scene_code（M0 已建）触发，覆盖旧 INSERT 的 5 行 + 重新导向 nl_answer/nl2es_dsl 两个 legacy 场景。
+-- 注意： schema validator 用 JSON Schema 标准，所以 output_schema 必须是 {"required":[],"properties":{}} 完整格式。
+
+REPLACE INTO llm_prompt_template (id, scene_code, scene_name, system_prompt, user_prompt_tpl, output_schema, version, enabled, create_time, update_time, deleted) VALUES
+(1, 'alert_explain', '告警解读',
+ '你是资深SRE。基于告警信息和指标摘要，用简洁中文解释告警。严格输出JSON。',
+ '【告警】标题：${title} / 级别：${level} / 对象：${targetName}(${ip})
+指标：${metricName} / 触发值：${triggerValue} / 阈值：${threshold}
+首次触发：${firstTime} / 持续：${duration}分钟 / 累计${count}次
+【指标摘要】当前：${current} 均值：${avg} 峰值：${max} 基线：[${lower},${upper}]
+趋势：${trend} 突变点：${changePoint}
+【历史同期】昨日同时段：${yesterdayAvg} 上周同日：${lastWeekAvg}
+【相关日志摘要】${logTemplateSummary}
+
+输出JSON（字段必填 summary/severityAssessment/possibleCauses/suggestions/confidence）：
+{"summary":"一句话说明发生了什么（30字内）","severityAssessment":"高/中/低","possibleCauses":["..."],"logEvidence":"日志中支持该判断的证据","impact":"可能影响的业务范围","suggestions":["..."],"needImmediateAction":true,"confidence":0.8}',
+ '{"type":"object","required":["summary","severityAssessment","possibleCauses","suggestions"],"properties":{"summary":{"type":"string","minLength":5},"severityAssessment":{"enum":["高","中","低"]},"possibleCauses":{"type":"array","minItems":1},"suggestions":{"type":"array","minItems":1},"confidence":{"type":"number","minimum":0,"maximum":1}},"additionalProperties":true}',
+ 2, 1, NOW(), NOW(), 0),
+(3, 'root_cause', '根因分析',
+ '你是资深SRE，擅长故障根因分析。给出按可能性排序的根因假设。分析原则：1.优先最早出现异常的组件（时间优先）2.优先拓扑层级更深的组件 3.优先近期有变更的组件 4.必须引用具体指标或日志作为证据。严格输出JSON。',
+ '【故障事件】标题：${title} 级别：${level} 开始：${startTime} 聚合告警数：${alertCount}
+【并发告警】（按时间排序，格式：[时间] 对象|指标|触发值|描述）
+${alertList}
+【拓扑关系】${faultTarget} ├─宿主：${hostInfo} └─依赖：${dependencies}
+【指标摘要】${metricsSummary}
+【★日志证据】${logTemplateSummary}
+【近期变更】${recentChanges}
+【历史相似案例】相似度${score}%：${caseTitle} / 症状：${symptom} / 根因：${rootCause} / 方案：${solution}
+
+输出JSON（必填 rootCauses/timeline/confidence）：
+{"primaryCause":{"target":"","metric":"","reason":"","confidence":0.8,"evidence":["证据1"]},"otherCandidates":[{"target":"","metric":"","reason":"","confidence":0.5}],"reasoningChain":"推理链条","logEvidenceUsed":true,"timeline":["..."],"suggestions":["..."],"needMoreInfo":["..."],"similarCaseReference":{"caseId":1,"howSimilar":"..."},"confidence":0.7}',
+ '{"type":"object","required":["rootCauses","timeline","confidence"],"properties":{"rootCauses":{"type":"array","minItems":1},"timeline":{"type":"array"},"confidence":{"type":"number","minimum":0,"maximum":1}},"additionalProperties":true}',
+ 2, 1, NOW(), NOW(), 0),
+(4, 'log_explain', '日志解读',
+ '你是资深SRE。你正在分析一个日志模板的异常上下文。请严格按照以下 schema 输出合法 JSON，不要输出 markdown 围栏。R"output 必须严格满足：summary/likelyCause/suggestion 都是非空字符串；confidence 是 [0,1] 的数字。',
+ '分析这个日志模板的异常上下文：
+
+${inputSummary}
+
+请只返回严格的 JSON 对象，无任何前置/后续文本：
+{"summary":"<20-80字，这个日志反映了什么>","likelyCause":"<最可能的根因>","suggestion":"<具体的处置建议>","confidence":0.0~1.0}',
+ '{"type":"object","required":["summary","likelyCause","suggestion","confidence"],"properties":{"summary":{"type":"string","minLength":10},"likelyCause":{"type":"string","minLength":5},"suggestion":{"type":"string","minLength":5},"confidence":{"type":"number","minimum":0,"maximum":1}},"additionalProperties":true}',
+ 2, 1, NOW(), NOW(), 0),
+(2, 'nl2query', '监控问答NL2Query',
+ '你是数据查询助手，将自然语言转为结构化查询。可用指标：${metricList} 可用对象：${targetList}。严格输出JSON。',
+ '问题：${question}
+输出JSON（必填 queryType/targetIds/timeRange）：
+{"queryType":"metric_query|alert_query|incident_query|unknown","targetIds":[1],"metricKeys":["cpu.usage"],"timeRange":{"start":"2026-09-27T15:00:00","end":"2026-09-27T16:00:00"},"aggregation":"avg","step":"1m","orderBy":"desc","limit":10,"explain":"查询意图说明"}
+规则：只能用上述指标与对象，不得编造；无法理解则 queryType=unknown。',
+ '{"type":"object","required":["queryType","targetIds","timeRange"],"properties":{"queryType":{"enum":["metric_query","alert_query","incident_query","unknown"]},"targetIds":{"type":"array"},"timeRange":{"type":"object"},"metricKeys":{"type":"array"}}, "additionalProperties":true}',
+ 2, 1, NOW(), NOW(), 0),
+(5, 'log_summary', '日志摘要归纳',
+ '你是运维助手。基于给定的日志查询结果，用简洁中文回答用户的原始问题。严格按 JSON 输出。',
+ '用户问题：${question}
+查询结果摘要：${resultSummary}
+
+输出 JSON（必填 summary/keyFindings/confidence）：
+{"summary":"对查询结果的一句话总结","keyFindings":["关键发现 1","关键发现 2"],"confidence":0.8}',
+ '{"type":"object","required":["summary","keyFindings","confidence"],"properties":{"summary":{"type":"string","minLength":20},"keyFindings":{"type":"array","minItems":1},"confidence":{"type":"number","minimum":0,"maximum":1}},"additionalProperties":true}',
+ 2, 1, NOW(), NOW(), 0),
+(7, 'report', '故障报告',
+ '你是资深SRE。基于故障事件全部信息输出一份结构清晰的 Markdown 故障报告。',
+ '【故障事件】${incidentInfo}
+【告警列表】${alertList}
+【根因分析结论】${rootCause}
+【时间线】${timeline}
+
+输出 Markdown，目录固定为：
+## 一、故障概述 ## 二、影响范围 ## 三、时间线 ## 四、根因分析 ## 五、恢复过程 ## 六、改进措施',
+ '{"type":"object","required":["markdown"],"properties":{"markdown":{"type":"string","minLength":100}},"additionalProperties":true}',
+ 2, 1, NOW(), NOW(), 0),
+(6, 'similar_case_input', '相似案例推断',
+ '你是运维知识库专家。给定当前告警上下文与历史案例库候选，评估最相似的案例并说明依据。严格输出 JSON。',
+ '当前告警上下文：
+${currentContext}
+
+历史案例库候选：
+${candidateCases}
+
+输出 JSON（必填 matchedCaseId/similarity/reason）：
+{"matchedCaseId":1,"similarity":0.85,"reason":"匹配的关键词与指标特征说明"}',
+ '{"type":"object","required":["matchedCaseId","similarity","reason"],"properties":{"matchedCaseId":{"type":"integer"},"similarity":{"type":"number","minimum":0,"maximum":1},"reason":{"type":"string","minLength":10}},"additionalProperties":true}',
+ 2, 1, NOW(), NOW(), 0);
 
 -- 默认采集任务：本机核心指标 30s（覆盖尽量多的 metric，便于累计 3000 条 metric_data）
 INSERT INTO collect_task (target_id, metric_keys, interval_sec, status) VALUES
