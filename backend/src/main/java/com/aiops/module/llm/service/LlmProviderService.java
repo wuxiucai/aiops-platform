@@ -109,7 +109,8 @@ public class LlmProviderService {
         if ("ollama".equals(p.getProviderType())) {
             return new OllamaClient(p.getBaseUrl(), timeout, webClientBuilder);
         }
-        return new OpenAiCompatibleClient(p.getBaseUrl(), apiKey, timeout, webClientBuilder);
+        return new OpenAiCompatibleClient(p.getBaseUrl(), apiKey, timeout, webClientBuilder,
+                p.getEmbeddingModel());
     }
 
     /** 响应脱敏：api_key 只回前4位 */

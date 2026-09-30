@@ -26,13 +26,25 @@ public class OpenAiCompatibleClient implements LlmClient {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public OpenAiCompatibleClient(String baseUrl, String apiKey, int timeoutMs, WebClient.Builder builder) {
+        this(baseUrl, apiKey, timeoutMs, builder, null);
+    }
+
+    /**
+     * @param embeddingModel provider 配置的 embedding_model（如 text-embedding-v1 / mxbai-embed-large / deepseek-embed)。
+     *                       为 null 时调用 embed() 直接返回 null（走 LIKE 兜底，按任务书"在无嵌入能力 provider 下的退化路径"）。
+     */
+    public OpenAiCompatibleClient(String baseUrl, String apiKey, int timeoutMs, WebClient.Builder builder,
+                                  String embeddingModel) {
         String root = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.webClient = builder.baseUrl(root)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
         this.apiKey = apiKey;
+        this.embeddingModel = embeddingModel;
     }
+
+    private final String embeddingModel;
 
     @Override
     public LlmResponse chat(LlmRequest req) {
@@ -106,9 +118,13 @@ public class OpenAiCompatibleClient implements LlmClient {
 
     @Override
     public List<Float> embed(String text) {
+        if (embeddingModel == null || embeddingModel.isBlank()) {
+            // 审查方路径：provider no embedding capability → return null 让调用方走 LIKE 兜底
+            return null;
+        }
         String resp = webClient.post()
                 .uri("/embeddings")
-                .bodyValue(Map.of("model", "text-embedding-v1", "input", text))
+                .bodyValue(Map.of("model", embeddingModel, "input", text))
                 .retrieve()
                 .bodyToMono(String.class)
                 .block(Duration.ofSeconds(60));

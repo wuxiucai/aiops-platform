@@ -379,7 +379,9 @@ CREATE TABLE kb_fault_case (
   title VARCHAR(255) NOT NULL,
   symptom TEXT, root_cause TEXT, solution TEXT, tags JSON,
   occurred_time DATETIME, related_incident_id BIGINT, source VARCHAR(64),
-  embedding TEXT, create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+  embedding TEXT,
+  embedding_status VARCHAR(16) DEFAULT 'pending' COMMENT 'done|pending|failed',
+  create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
   deleted TINYINT NOT NULL DEFAULT 0
 );
 
