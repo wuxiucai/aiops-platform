@@ -82,7 +82,7 @@ public class LogTemplateJobService {
     @Transactional
     public Map<String, Object> runTemplateJob(int windowMinutes) {
         LocalDateTime now = LocalDateTime.now();
-        LocalDateTime start = now.minusMinutes(windowMinutes);
+        LocalDateTime start = watermark(now, windowMinutes);
         LocalDateTime end = now;
 
         EsDatasource ds = esDatasourceMapper.selectById(1L);
@@ -286,7 +286,8 @@ public class LogTemplateJobService {
                             .eq(LogTemplateStat::getTemplateId, t.getId())
                             .orderByDesc(LogTemplateStat::getStatTime)
                             .last("LIMIT 7"));
-            if (stats.size() < 4) continue;
+            // 至少需要 1 个历史窗口做基线；要求 4 个窗口会让新模板 40min 内无法触发 spike
+            if (stats.size() < 2) continue;
             int cur = stats.get(0).getWindowCount();
             long sum = 0;
             for (int i = 1; i < stats.size(); i++) sum += stats.get(i).getWindowCount();
@@ -375,6 +376,28 @@ public class LogTemplateJobService {
             throw new BizException("ES 响应解析失败：" + e.getMessage());
         }
         return out;
+    }
+
+    /**
+     * 增量水位线：取已处理日志的最大 last_seen（log_template.last_seen）往前回退 1s 作为下轮起点，
+     * 避免 fixedDelay(600s) 实际周期 > 10min 时固定窗口滚动造成的日志漏采。
+     * 下限 = now - max(3*window, 30min)：既不会全量重扫历史，又能在 Job 中断后补采最近半小时。
+     */
+    private LocalDateTime watermark(LocalDateTime now, int windowMinutes) {
+        LocalDateTime floor = now.minusMinutes(Math.max(windowMinutes * 3L, 30L));
+        try {
+            LogTemplate latest = logTemplateMapper.selectOne(new LambdaQueryWrapper<LogTemplate>()
+                    .isNotNull(LogTemplate::getLastSeen)
+                    .orderByDesc(LogTemplate::getLastSeen)
+                    .last("LIMIT 1"));
+            if (latest == null || latest.getLastSeen() == null) {
+                return now.minusMinutes(windowMinutes);
+            }
+            LocalDateTime wm = latest.getLastSeen().minusSeconds(1);
+            return wm.isBefore(floor) ? floor : wm;
+        } catch (Exception e) {
+            return now.minusMinutes(windowMinutes);
+        }
     }
 
     private LocalDateTime parseTime(String s) {

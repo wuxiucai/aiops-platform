@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+    <include resource="org/springframework/boot/logging/logback/file-appender.xml"/>
+
+    <!--
+      平台自身日志 → Logstash（任务书 M4 第 1 项：Logstash 收到 aiops-platform 自身日志；
+      v2 §8.5：TCP 5000 / json_lines / customFields.service 与 monitor_target.log_service_name 对应）。
+      Drain 训练域白名单里包含 aiops-platform，本 appender 就是它的数据来源。
+    -->
+    <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
+        <destination>10.0.0.91:5000</destination>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <customFields>{"service":"aiops-platform","env":"dev"}</customFields>
+        </encoder>
+        <!-- Logstash 不可达时不阻塞业务线程 -->
+        <reconnectionDelay>30 second</reconnectionDelay>
+        <writeTimeout>5 second</writeTimeout>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="LOGSTASH"/>
+    </root>
+
+    <!-- 平台业务日志保持 INFO/DEBUG（任务书要求：调外部依赖打 INFO，异常打 ERROR） -->
+    <logger name="com.aiops" level="INFO"/>
+    <!-- MyBatis SQL 噪音：Mapper 层的 SQL DEBUG 会淹没平台业务日志，压到 WARN -->
+    <logger name="com.aiops.module.monitor.mapper" level="WARN"/>
+    <logger name="com.aiops.module.alert.mapper" level="WARN"/>
+    <logger name="com.aiops.module.log.mapper" level="WARN"/>
+    <logger name="com.aiops.module.llm.mapper" level="WARN"/>
+    <logger name="com.aiops.module.system.mapper" level="WARN"/>
+    <logger name="com.aiops.module.esa.mapper" level="WARN"/>
+    <logger name="com.aiops.module.incident.mapper" level="WARN"/>
+    <logger name="com.aiops.module.notify.mapper" level="WARN"/>
+    <logger name="com.baomidou" level="INFO"/>
+</configuration>

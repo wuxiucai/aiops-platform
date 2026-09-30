@@ -27,7 +27,7 @@ public class LogTemplateController {
     private final LogTemplateService logTemplateService;
 
     @Operation(summary = "分页")
-    @RequirePerm("log:search:list")
+    @RequirePerm("log:template:list")
     @GetMapping("/page")
     public Result<Page<LogTemplate>> page(@RequestParam(defaultValue = "1") long current,
                                           @RequestParam(defaultValue = "20") long size,
@@ -49,7 +49,7 @@ public class LogTemplateController {
     }
 
     @Operation(summary = "趋势（最近 N 小时窗口计数）")
-    @RequirePerm("log:search:list")
+    @RequirePerm("log:template:list")
     @GetMapping("/{id}/trend")
     public Result<Map<String, Object>> trend(@PathVariable Long id,
                                              @RequestParam(required = false) Integer hours) {
@@ -57,7 +57,7 @@ public class LogTemplateController {
     }
 
     @Operation(summary = "样本（按 keyword 查最近 size 条）")
-    @RequirePerm("log:search:list")
+    @RequirePerm("log:template:list")
     @GetMapping("/{id}/samples")
     public Result<Map<String, Object>> samples(@PathVariable Long id,
                                                @RequestParam(required = false) Integer size) {

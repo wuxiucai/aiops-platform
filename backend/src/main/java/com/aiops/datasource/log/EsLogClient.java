@@ -20,7 +20,13 @@ import java.util.Set;
 @Component
 public class EsLogClient {
 
-    private final WebClient.Builder webClientBuilder = WebClient.builder();
+    /**
+     * 日志检索/模板训练的响应体可能到 MB 级（5000 条 _source），
+     * WebClient 默认 maxInMemorySize=256KB 会抛
+     * "Exceeded limit on max bytes to buffer : 262144"，故显式抬高到 32MB。
+     */
+    private final WebClient.Builder webClientBuilder = WebClient.builder()
+            .codecs(c -> c.defaultCodecs().maxInMemorySize(32 * 1024 * 1024));
 
     /** 显式禁止的写操作端点（先查黑名单，防止白名单关键词被子串绕过） */
     private static final Set<String> DENIED_PATH_KEYWORDS = Set.of(
@@ -71,9 +77,8 @@ public class EsLogClient {
             String resp = webClientBuilder.baseUrl(baseUrl).build()
                     .get()
                     .uri(path)
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block(Duration.ofSeconds(15));
+                    .exchangeToMono(r -> r.bodyToMono(String.class).defaultIfEmpty(""))
+                    .block(Duration.ofSeconds(30));
             log.info("[ES] GET {}{} 耗时 {}ms", baseUrl, path, System.currentTimeMillis() - start);
             return resp;
         } catch (BizException e) {
@@ -93,14 +98,15 @@ public class EsLogClient {
         }
         long start = System.currentTimeMillis();
         try {
+            // 用 exchangeToMono：retrieve() 在某些线程上下文（调度池）里会把 200 OK 的纯文本响应当作错误
             String resp = webClientBuilder.baseUrl(baseUrl).build()
                     .post()
                     .uri(path)
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(jsonBody)
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block(Duration.ofSeconds(30));
+                    .exchangeToMono(r -> r.bodyToMono(String.class)
+                            .defaultIfEmpty(""))
+                    .block(Duration.ofSeconds(60));
             log.info("[ES] POST {}{} bodyLen={} 耗时 {}ms",
                     baseUrl, path, jsonBody.length(), System.currentTimeMillis() - start);
             return resp;

@@ -5,10 +5,11 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   server: {
+    host: '0.0.0.0',   // 同时监听 IPv4/IPv6，避免只绑 [::1] 导致 127.0.0.1 访问不通
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'http://127.0.0.1:8080',
         changeOrigin: true
       }
     }

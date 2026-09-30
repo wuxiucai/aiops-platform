@@ -32,7 +32,7 @@ public class LogAnomalyController {
     private final LogAnomalyMapper logAnomalyMapper;
 
     @Operation(summary = "分页列表")
-    @RequirePerm("log:search:list")
+    @RequirePerm("log:anomaly:list")
     @GetMapping("/page")
     public Result<Page<LogAnomaly>> page(@RequestParam(defaultValue = "1") long current,
                                          @RequestParam(defaultValue = "20") long size,
@@ -48,7 +48,7 @@ public class LogAnomalyController {
     }
 
     @Operation(summary = "详情")
-    @RequirePerm("log:search:list")
+    @RequirePerm("log:anomaly:list")
     @GetMapping("/{id}")
     public Result<LogAnomaly> detail(@PathVariable Long id) {
         return Result.ok(logAnomalyMapper.selectById(id));

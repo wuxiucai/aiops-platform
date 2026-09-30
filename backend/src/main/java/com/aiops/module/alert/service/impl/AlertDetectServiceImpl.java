@@ -106,6 +106,8 @@ public class AlertDetectServiceImpl implements AlertDetectService {
                     rule.getThreshold() == null ? null : rule.getThreshold().doubleValue());
         }
         if (!triggered) {
+            // §5.5.2 步骤2 后半句"否则当作恢复"：条件不再满足 → 关闭该 dedup_key 下的活跃告警
+            autoResolve(rule, value);
             return false;
         }
 
@@ -138,6 +140,8 @@ public class AlertDetectServiceImpl implements AlertDetectService {
             }
         }
         if (!sustained) {
+            // 抖动/回落 → 同样视为恢复（§5.5.2：不满足持续时长就不该保持活跃告警）
+            autoResolve(rule, value);
             return false;
         }
 
@@ -206,6 +210,47 @@ public class AlertDetectServiceImpl implements AlertDetectService {
         Long creatorUserId = findCreatorUserId(rule.getCreator());
         notifyService.sendAlert(rule, record, creatorUserId);
         return true;
+    }
+
+    /**
+     * 自动恢复（§5.5.2 步骤 2 的"否则当作恢复"）：
+     * 规则条件不再满足（或抖动未持续）时，把同 dedup_key 下仍处于 pending/processing 的告警置为 resolved，
+     * 并写入 incident_timeline。已被人为 close/误报的记录不动。
+     */
+    private void autoResolve(AlertRule rule, double currentValue) {
+        String dedupKey = "rule_" + rule.getId() + "_target_" + rule.getTargetId()
+                + "_metric_" + rule.getMetricKey();
+        List<AlertRecord> actives = alertRecordMapper.selectList(new LambdaQueryWrapper<AlertRecord>()
+                .eq(AlertRecord::getDedupKey, dedupKey)
+                .in(AlertRecord::getStatus, List.of("pending", "processing")));
+        if (actives.isEmpty()) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        for (AlertRecord a : actives) {
+            AlertRecord upd = new AlertRecord();
+            upd.setId(a.getId());
+            upd.setStatus("resolved");
+            upd.setUpdateTime(now);
+            alertRecordMapper.updateById(upd);
+            log.info("[AlertDetect] auto-resolved alert#{} (dedupKey={}, value={})",
+                    a.getId(), dedupKey, currentValue);
+            // incident_timeline 留痕
+            if (a.getIncidentId() != null) {
+                try {
+                    IncidentTimeline tl = new IncidentTimeline();
+                    tl.setIncidentId(a.getIncidentId());
+                    tl.setEventType("alert_auto_resolved");
+                    tl.setDescription("指标恢复正常，告警自动恢复：" + a.getTitle());
+                    tl.setOperator("system");
+                    tl.setEventTime(now);
+                    tl.setRefId(a.getId());
+                    incidentTimelineMapper.insert(tl);
+                } catch (Exception e) {
+                    log.warn("[AlertDetect] 写 incident_timeline 失败: {}", e.getMessage());
+                }
+            }
+        }
     }
 
     /** 静默：命中 enabled & 当前时间在 [start,end] 的 alert_silence */

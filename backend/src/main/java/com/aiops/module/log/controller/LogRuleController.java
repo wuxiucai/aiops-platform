@@ -33,7 +33,7 @@ public class LogRuleController {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Operation(summary = "分页列表")
-    @RequirePerm("log:search:list")
+    @RequirePerm("log:rule:list")
     @GetMapping("/page")
     public Result<Page<LogDetectRule>> page(@RequestParam(defaultValue = "1") long current,
                                             @RequestParam(defaultValue = "20") long size,

@@ -55,7 +55,7 @@ public class LogSearchService {
                 JsonNode src = hit.path("_source");
                 JsonNode hl = hit.path("highlight");
                 Map<String, Object> row = new HashMap<>();
-                row.put("time", src.path(p.timeField()).asText(null));
+                row.put("time", toLocalTime(src.path(p.timeField()).asText(null)));
                 row.put("level", src.path(p.levelField()).asText(null));
                 row.put("service", src.path(p.serviceField()).asText(null));
                 row.put("traceId", src.path(p.traceIdField()).asText(null));
@@ -92,7 +92,7 @@ public class LogSearchService {
             List<Map<String, Object>> list = new ArrayList<>();
             for (JsonNode b : buckets) {
                 Map<String, Object> row = new HashMap<>();
-                row.put("time", b.path("key_as_string").asText());
+                row.put("time", toLocalTime(b.path("key_as_string").asText()));
                 row.put("count", b.path("doc_count").asLong());
                 list.add(row);
             }
@@ -101,6 +101,22 @@ public class LogSearchService {
             throw new BizException("直方图解析失败：" + e.getMessage());
         }
         return out;
+    }
+
+    /**
+     * ES 的 @timestamp / date_histogram key_as_string 都是 UTC（形如 2026-09-30T03:01:46.996Z），
+     * 直接透传给前端会显示成 UTC 时间，与平台其余地方的 +08:00 本地时间不一致 → 统一转 +8。
+     */
+    private String toLocalTime(String esTime) {
+        if (esTime == null || esTime.isBlank()) return null;
+        try {
+            String t = esTime;
+            if (t.endsWith("Z")) t = t.substring(0, t.length() - 1);
+            LocalDateTime utc = LocalDateTime.parse(t, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            return utc.plusHours(8).format(IN_FMT);
+        } catch (Exception e) {
+            return esTime;
+        }
     }
 
     /** 解析前端参数为 SearchParams */
