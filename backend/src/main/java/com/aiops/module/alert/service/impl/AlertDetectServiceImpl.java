@@ -112,6 +112,8 @@ public class AlertDetectServiceImpl implements AlertDetectService {
         }
 
         // 3. duration_sec 持续判定：窗口内全部样本都满足触发条件才算持续越界（§5.5.2 步骤2）
+        //    注意：采样间隔可能大于 duration_sec（如 30s 采集 + 5s 持续），此时窗口内不足 2 个点，
+        //    不能用"窗口内全部点越界"来否定持续——退化为"是否已连续 N 个采样点越界"。
         int durationSec = rule.getDurationSec() == null ? 60 : rule.getDurationSec();
         LocalDateTime since = LocalDateTime.now().minusSeconds(durationSec);
         List<MetricData> windowData = metricDataMapper.selectList(new LambdaQueryWrapper<MetricData>()
@@ -119,25 +121,17 @@ public class AlertDetectServiceImpl implements AlertDetectService {
                 .eq(MetricData::getMetricKey, rule.getMetricKey())
                 .ge(MetricData::getCollectTime, since)
                 .orderByAsc(MetricData::getCollectTime));
+        boolean sustained;
         if (windowData.size() < 2) {
-            return false;
-        }
-        // 全部点都越界才算是"持续"，否则视为抖动恢复
-        boolean sustained = true;
-        for (MetricData md : windowData) {
-            double v = md.getMetricValue().doubleValue();
-            boolean hit;
-            if ("baseline".equalsIgnoreCase(rule.getRuleType())) {
-                hit = baselineUpper != null
-                        && (v > baselineUpper.doubleValue() || v < baselineLower.doubleValue());
-            } else {
-                hit = AlertRuleServiceImpl.compare(v, rule.getOperator(),
-                        rule.getThreshold() == null ? null : rule.getThreshold().doubleValue());
-            }
-            if (!hit) {
-                sustained = false;
-                break;
-            }
+            // 采样点不足（采样间隔 > duration_sec）：取最近 2 个采样点判断是否同样越界
+            List<MetricData> recent2 = metricDataMapper.selectList(new LambdaQueryWrapper<MetricData>()
+                    .eq(MetricData::getTargetId, rule.getTargetId())
+                    .eq(MetricData::getMetricKey, rule.getMetricKey())
+                    .orderByDesc(MetricData::getCollectTime)
+                    .last("LIMIT 2"));
+            sustained = recent2.size() >= 2 && matchesAll(recent2, rule, baselineUpper, baselineLower);
+        } else {
+            sustained = matchesAll(windowData, rule, baselineUpper, baselineLower);
         }
         if (!sustained) {
             // 抖动/回落 → 同样视为恢复（§5.5.2：不满足持续时长就不该保持活跃告警）
@@ -175,6 +169,21 @@ public class AlertDetectServiceImpl implements AlertDetectService {
         }
 
         // 新建告警
+        // §5.5.2 步骤3 的收尾：同 dedup_key 下还有更早的活跃记录（超过 10min 无触发 = 已断档，
+        // 但当时没有自动恢复机制或 Job 中断导致遗留）→ 置 resolved，避免僵尸告警长期滞留。
+        if (existed == null) {
+            List<AlertRecord> stale = alertRecordMapper.selectList(new LambdaQueryWrapper<AlertRecord>()
+                    .eq(AlertRecord::getDedupKey, dedupKey)
+                    .in(AlertRecord::getStatus, "pending", "processing"));
+            for (AlertRecord s : stale) {
+                AlertRecord updStale = new AlertRecord();
+                updStale.setId(s.getId());
+                updStale.setStatus("resolved");
+                updStale.setUpdateTime(LocalDateTime.now());
+                alertRecordMapper.updateById(updStale);
+                log.info("[Alert] 收尾僵尸告警 id={} (dedupKey={}, 断档超 10min)", s.getId(), dedupKey);
+            }
+        }
         AlertRecord record = new AlertRecord();
         record.setRuleId(rule.getId());
         record.setTargetId(rule.getTargetId());
@@ -209,6 +218,26 @@ public class AlertDetectServiceImpl implements AlertDetectService {
         // 7. 通知
         Long creatorUserId = findCreatorUserId(rule.getCreator());
         notifyService.sendAlert(rule, record, creatorUserId);
+        return true;
+    }
+
+    /** 判断一组采样点是否全部满足触发条件（duration_sec 持续判定的核心） */
+    private boolean matchesAll(List<MetricData> points, AlertRule rule,
+                               BigDecimal baselineUpper, BigDecimal baselineLower) {
+        for (MetricData md : points) {
+            double v = md.getMetricValue().doubleValue();
+            boolean hit;
+            if ("baseline".equalsIgnoreCase(rule.getRuleType())) {
+                hit = baselineUpper != null && baselineLower != null
+                        && (v > baselineUpper.doubleValue() || v < baselineLower.doubleValue());
+            } else {
+                hit = AlertRuleServiceImpl.compare(v, rule.getOperator(),
+                        rule.getThreshold() == null ? null : rule.getThreshold().doubleValue());
+            }
+            if (!hit) {
+                return false;
+            }
+        }
         return true;
     }
 

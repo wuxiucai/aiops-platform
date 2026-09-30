@@ -65,16 +65,21 @@ ok_res = http("PUT", f"{B}/api/alert/record/{aid}/resolve", {"remark": "M3验收
 st2 = http("GET", f"{B}/api/alert/record/{aid}", tok=tok)["data"]["status"]
 rec("M3-2b 解决 → resolved + remark 留存", ok_res and st2 == "resolved", f"status={st2}")
 
-# 4. dedup：同对象 5 分钟内同规则只更新 trigger_count，不新建
-mysql("UPDATE alert_record SET status='pending' WHERE id=1")
+# 4. dedup：同对象持续触发只更新 trigger_count，不新建
+#    取"当前活跃的那条"（而非硬编码 id=1 —— 历史记录可能因断档被 resolved，不再被 dedup 复用）
+mysql("UPDATE alert_record SET status='resolved' WHERE dedup_key='rule_1_target_1_metric_cpu.usage' AND status IN ('pending','processing')")
+mysql("INSERT INTO alert_record (rule_id,target_id,metric_key,level,title,content,trigger_value,threshold_value,status,dedup_key,first_trigger_time,last_trigger_time,trigger_count) "
+      "SELECT rule_id,target_id,metric_key,level,title,content,trigger_value,threshold_value,'pending',dedup_key,NOW(),DATE_SUB(NOW(), INTERVAL 1 MINUTE),1 "
+      "FROM alert_record WHERE dedup_key='rule_1_target_1_metric_cpu.usage' ORDER BY id DESC LIMIT 1")
+row = mysql("SELECT id FROM alert_record WHERE dedup_key='rule_1_target_1_metric_cpu.usage' AND status='pending' ORDER BY id DESC LIMIT 1")
+aid3 = row.strip() if row else "0"
+before_cnt = mysql(f"SELECT trigger_count FROM alert_record WHERE id={aid3}") or "0"
 time.sleep(70)
-row = mysql("SELECT trigger_count, status FROM alert_record WHERE id=1")
-tc = row.split("\t")[0] if row else "0"
-# dedup：当前 pending/processing 状态下，同一 dedup_key 只能有 ≤1 条活跃记录；历史 closed 是恢复后新建属正常
+tc = mysql(f"SELECT trigger_count FROM alert_record WHERE id={aid3}") or "0"
 cnt_open = mysql("SELECT COUNT(*) FROM alert_record WHERE dedup_key='rule_1_target_1_metric_cpu.usage' AND status IN ('pending','processing')")
 rec("M3-3 dedup 生效（同问题持续 trigger_count 累加，不新增活跃记录）",
-    int(cnt_open or 0) <= 1 and int(tc or 0) >= 2,
-    f"trigger_count={tc} open_rows_for_dedup={cnt_open}")
+    int(tc or 0) > int(before_cnt or 0) and int(cnt_open or 0) <= 1,
+    f"alert#{aid3} trigger_count {before_cnt}→{tc}, open_rows={cnt_open}")
 
 # 5. incident 聚合：alert#1 与某条 target=1 的 incident 关联了 open
 inc_id = mysql("SELECT incident_id FROM alert_record WHERE id=1")
