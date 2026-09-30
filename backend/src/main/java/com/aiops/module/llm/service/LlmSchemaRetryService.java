@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -51,15 +52,25 @@ public class LlmSchemaRetryService {
             long totalLatencyMs) {}
 
     /**
-     * 按 sceneCode 调用 LLM 并做 schema 校验。
-     *
-     * @param client   LlmClient 实例（必须 buildClient 好的）
-     * @param model    model name
-     * @param sceneCode 如 "log_explain"
-     * @param inputSummary 用户输入摘要（会替换 ${inputSummary} 占位）
+     * 按 sceneCode 调用 LLM 并做 schema 校验（单占位符 ${inputSummary}）。
      */
     public SchemaCheckedResult callWithSchema(LlmClient client, String model,
                                               String sceneCode, String inputSummary) {
+        return callWithSchema(client, model, sceneCode, Map.of("inputSummary", inputSummary == null ? "" : inputSummary));
+    }
+
+    /**
+     * 按 sceneCode 调用 LLM 并做 schema 校验（多占位符）。
+     * <p>
+     * placeholders 的 key 不含 ${}；调用端需负责把模板的每个 ${name} 用占位符集中的 name 提供值替换。
+     *
+     * @param client         LlmClient 实例
+     * @param model          model name
+     * @param sceneCode      如 "log_explain" / "nl2query"
+     * @param placeholders   替换映射，如 {"metricList": "cpu.usage=CPU 用率,...", "question": "..."}
+     */
+    public SchemaCheckedResult callWithSchema(LlmClient client, String model,
+                                              String sceneCode, Map<String, String> placeholders) {
         LlmPromptTemplate tpl = promptTemplateMapper.selectOne(
                 new LambdaQueryWrapper<LlmPromptTemplate>()
                         .eq(LlmPromptTemplate::getSceneCode, sceneCode)
@@ -68,11 +79,20 @@ public class LlmSchemaRetryService {
         if (tpl == null) {
             throw new BizException("prompt 模板不存在：scene=" + sceneCode);
         }
-        String systemPrompt = tpl.getSystemPrompt() == null ? "" : tpl.getSystemPrompt();
+        String systemPromptRaw = tpl.getSystemPrompt() == null ? "" : tpl.getSystemPrompt();
         String userTpl = tpl.getUserPromptTpl() == null ? "" : tpl.getUserPromptTpl();
         String schema = tpl.getOutputSchema();
 
-        String userMsg = userTpl.replace("${inputSummary}", inputSummary == null ? "" : inputSummary);
+        // 占位符替换应用于 system + user 两段（metricList / targetList 常驻 system_prompt）
+        String systemPrompt = systemPromptRaw;
+        String userMsg = userTpl;
+        if (placeholders != null) {
+            for (Map.Entry<String, String> e : placeholders.entrySet()) {
+                if (e.getKey() == null || e.getValue() == null) continue;
+                userMsg = userMsg.replace("${" + e.getKey() + "}", e.getValue());
+                systemPrompt = systemPrompt.replace("${" + e.getKey() + "}", e.getValue());
+            }
+        }
 
         long t0 = System.currentTimeMillis();
         int sumPrompt = 0, sumComp = 0, sumTotal = 0;

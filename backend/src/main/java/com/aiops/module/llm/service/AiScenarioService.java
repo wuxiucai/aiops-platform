@@ -14,6 +14,8 @@ import com.aiops.module.llm.util.LogTemplateSummaryBuilder;
 import com.aiops.module.llm.util.MetricsSummarizer;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -50,6 +52,7 @@ public class AiScenarioService {
     private final AlertRecordMapper alertRecordMapper;
     private final AlertIncidentMapper alertIncidentMapper;
     private final com.aiops.module.llm.mapper.LlmCallLogMapper llmCallLogMapper;
+    private final com.aiops.module.llm.service.fallback.ScenarioFallbackProvider fallbackProvider;
 
     /* ================== 1. log_explain（原版沿用，统一走 schema retry） ================== */
 
@@ -59,9 +62,16 @@ public class AiScenarioService {
             throw new BizException("模板不存在：" + templateId);
         }
         String inputSummary = buildLogExplainContext(t);
-        LlmSchemaRetryService.SchemaCheckedResult r = run("log_explain", inputSummary, templateId);
-        saveCallLog("log_explain", templateId, r, null);
-        return r.parsed();
+        try {
+            LlmSchemaRetryService.SchemaCheckedResult r = run("log_explain", inputSummary, templateId);
+            saveCallLog("log_explain", templateId, r, null);
+            return r.parsed();
+        } catch (BizException e) {
+            // M5-7: LLM 失败 → 兜底（保留 200 code, isLlmFallback=true）
+            log.warn("[AiScenarioService] log_explain LLM fail → fallback: {}", e.getMessage());
+            saveCallLogFail("log_explain", templateId, "LLM 失败进入兜底: " + abbrev(e.getMessage(), 200));
+            return toJsonNode(fallbackProvider.fallback("log_explain", templateId));
+        }
     }
 
     /* ================== 2. alert_explain ================== */
@@ -72,9 +82,15 @@ public class AiScenarioService {
             throw new BizException("告警不存在：" + alertRecordId);
         }
         String inputSummary = buildAlertExplainContext(a);
-        LlmSchemaRetryService.SchemaCheckedResult r = run("alert_explain", inputSummary, alertRecordId);
-        saveCallLog("alert_explain", alertRecordId, r, null);
-        return r.parsed();
+        try {
+            LlmSchemaRetryService.SchemaCheckedResult r = run("alert_explain", inputSummary, alertRecordId);
+            saveCallLog("alert_explain", alertRecordId, r, null);
+            return r.parsed();
+        } catch (BizException e) {
+            log.warn("[AiScenarioService] alert_explain LLM fail → fallback: {}", e.getMessage());
+            saveCallLogFail("alert_explain", alertRecordId, "LLM 失败进入兜底: " + abbrev(e.getMessage(), 200));
+            return toJsonNode(fallbackProvider.fallback("alert_explain", alertRecordId));
+        }
     }
 
     /* ================== 3. root_cause ================== */
@@ -85,9 +101,15 @@ public class AiScenarioService {
             throw new BizException("事件不存在：" + incidentId);
         }
         String inputSummary = buildRootCauseContext(inc);
-        LlmSchemaRetryService.SchemaCheckedResult r = run("root_cause", inputSummary, incidentId);
-        saveCallLog("root_cause", incidentId, r, null);
-        return r.parsed();
+        try {
+            LlmSchemaRetryService.SchemaCheckedResult r = run("root_cause", inputSummary, incidentId);
+            saveCallLog("root_cause", incidentId, r, null);
+            return r.parsed();
+        } catch (BizException e) {
+            log.warn("[AiScenarioService] root_cause LLM fail → fallback: {}", e.getMessage());
+            saveCallLogFail("root_cause", incidentId, "LLM 失败进入兜底: " + abbrev(e.getMessage(), 200));
+            return toJsonNode(fallbackProvider.fallback("root_cause", incidentId));
+        }
     }
 
     /* ================== 内部 ================== */
@@ -201,6 +223,17 @@ public class AiScenarioService {
 
     private static String nz(Object o) {
         return o == null ? "" : String.valueOf(o);
+    }
+
+    private static String abbrev(String s, int max) {
+        if (s == null) return "";
+        return s.length() <= max ? s : s.substring(0, max - 1) + "…";
+    }
+
+    /** Map → JsonNode（fallback 的 isLlmFallback 标志需保持原样序列化回给前端） */
+    private static JsonNode toJsonNode(Map<String, Object> map) {
+        ObjectMapper mapper = new ObjectMapper();
+        return mapper.valueToTree(map);
     }
 
     /* ================== 给 MetricsSummarizer / LogTemplateSummaryBuilder 暴露工具方法 (Metric 场景使用） ================== */
