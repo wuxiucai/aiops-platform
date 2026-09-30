@@ -19,21 +19,30 @@
         <writeTimeout>5 second</writeTimeout>
     </appender>
 
-    <root level="INFO">
+    <!-- M4 收尾（审查方要求）：平台自身日志默认 WARN，只 alert / incident / 调用链路留 INFO -->
+    <root level="WARN">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="LOGSTASH"/>
     </root>
 
-    <!-- 平台业务日志保持 INFO/DEBUG（任务书要求：调外部依赖打 INFO，异常打 ERROR） -->
-    <logger name="com.aiops" level="INFO"/>
-    <!-- MyBatis SQL 噪音：Mapper 层的 SQL DEBUG 会淹没平台业务日志，压到 WARN -->
-    <logger name="com.aiops.module.monitor.mapper" level="WARN"/>
-    <logger name="com.aiops.module.alert.mapper" level="WARN"/>
-    <logger name="com.aiops.module.log.mapper" level="WARN"/>
-    <logger name="com.aiops.module.llm.mapper" level="WARN"/>
-    <logger name="com.aiops.module.system.mapper" level="WARN"/>
-    <logger name="com.aiops.module.esa.mapper" level="WARN"/>
-    <logger name="com.aiops.module.incident.mapper" level="WARN"/>
-    <logger name="com.aiops.module.notify.mapper" level="WARN"/>
-    <logger name="com.baomidou" level="INFO"/>
+    <logger name="com.aiops" level="WARN"/>
+    <!-- 告警 + 事件 是平台业务主线，留 INFO 便于 M3/M4 演示 -->
+    <logger name="com.aiops.module.alert" level="INFO"/>
+    <logger name="com.aiops.module.incident" level="INFO"/>
+    <!-- log 模块的 Job 结果、LLM 调用结果，留 INFO 便于 M4/M5 验收 -->
+    <logger name="com.aiops.module.log.service" level="INFO"/>
+    <logger name="com.aiops.schedule" level="INFO"/>
+    <!-- Spring/Jackson/JDBC/MyBatis/MyBatis-SQL 全部 WARN。
+         MyBatis 的 mapper 日志 logger 名是 <mapper-接口-FQN>.方法名，包树在 com.aiops.module.*，
+         此处对 8 个 mapper 包显式 WARN 防止 SQL 噪声淹没平台业务日志。 -->
+    <logger name="com.aiops.module.monitor.mapper" level="WARN" additivity="false"/>
+    <logger name="com.aiops.module.alert.mapper" level="WARN" additivity="false"/>
+    <logger name="com.aiops.module.log.mapper" level="WARN" additivity="false"/>
+    <logger name="com.aiops.module.llm.mapper" level="WARN" additivity="false"/>
+    <logger name="com.aiops.module.system.mapper" level="WARN" additivity="false"/>
+    <logger name="com.aiops.module.esa.mapper" level="WARN" additivity="false"/>
+    <logger name="com.aiops.module.incident.mapper" level="WARN" additivity="false"/>
+    <logger name="com.aiops.module.notify.mapper" level="WARN" additivity="false"/>
+    <logger name="org.springframework" level="WARN"/>
+    <logger name="com.baomidou" level="WARN"/>
 </configuration>

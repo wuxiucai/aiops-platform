@@ -39,6 +39,8 @@ public class AiLogExplainService {
     private final LogTemplateMapper logTemplateMapper;
     private final LogAnomalyMapper logAnomalyMapper;
     private final LogAnalysisRecordMapper logAnalysisRecordMapper;
+    private final com.aiops.module.llm.mapper.LlmCallLogMapper llmCallLogMapper;
+    private final com.aiops.module.llm.mapper.LlmPromptTemplateMapper llmPromptTemplateMapper;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public static final String OUTPUT_SCHEMA = """
@@ -67,14 +69,23 @@ public class AiLogExplainService {
         }
         LlmClient client = llmProviderService.buildClient(provider);
 
+        // 任务书 §5.7：提示词模板化管理 —— 从 llm_prompt_template 读取，scene=log_explain
+        com.aiops.module.llm.entity.LlmPromptTemplate tpl = llmPromptTemplateMapper.selectOne(
+                new LambdaQueryWrapper<com.aiops.module.llm.entity.LlmPromptTemplate>()
+                        .eq(com.aiops.module.llm.entity.LlmPromptTemplate::getSceneCode, "log_explain")
+                        .eq(com.aiops.module.llm.entity.LlmPromptTemplate::getEnabled, 1)
+                        .last("LIMIT 1"));
+        String systemPrompt = tpl != null && tpl.getSystemPrompt() != null && !tpl.getSystemPrompt().isBlank()
+                ? tpl.getSystemPrompt()
+                : "你是 AIOps 日志分析专家。请严格以 JSON 对象回答，字段为 summary, likelyCause, suggestion, confidence，confidence 取值范围 [0,1]。不要输出 markdown 围栏。";
+        String userTpl = tpl != null && tpl.getUserPromptTpl() != null && !tpl.getUserPromptTpl().isBlank()
+                ? tpl.getUserPromptTpl()
+                : "分析以下日志模板异常情况：\n\n${inputSummary}\n\n请只返回严格的 JSON，无任何前置/后续文本。";
+        userTpl = userTpl.replace("${inputSummary}", inputSummary);
+
         List<LlmClient.LlmMessage> msgs = new ArrayList<>();
-        msgs.add(new LlmClient.LlmMessage("system",
-                "你是 AIOps 日志分析专家。请严格以 JSON 对象回答，"
-                        + "字段为 summary, likelyCause, suggestion, confidence，"
-                        + "confidence 取值范围 [0,1]。不要输出 markdown 围栏。"));
-        String sceneLabel = "template_explain".equals(scene) ? "日志模板" : "日志异常";
-        msgs.add(new LlmClient.LlmMessage("user",
-                "以下是" + sceneLabel + "的上下文：\n\n" + inputSummary + "\n\n请基于该上下文给出 JSON 答复。"));
+        msgs.add(new LlmClient.LlmMessage("system", systemPrompt));
+        msgs.add(new LlmClient.LlmMessage("user", userTpl));
 
         LlmClient.LlmRequest req = new LlmClient.LlmRequest(
                 provider.getModelName(), msgs, 0.3, 1024, false);
@@ -85,9 +96,17 @@ public class AiLogExplainService {
             resp = client.chat(req);
         } catch (Exception e) {
             log.error("[AI解读] LLM 调用失败 scene={}, refId={}, err={}", scene, refId, e.getMessage());
+            saveCallLog(provider.getId(), scene, refId, 0, 0, 0,
+                    System.currentTimeMillis() - t0, "fail", e.getMessage());
             throw new BizException("LLM 调用失败：" + e.getMessage());
         }
         long latency = System.currentTimeMillis() - t0;
+        // 任务书红线：每次 LLM 调用都落 llm_call_log（含 cost/latency），场景跑通后才解析
+        saveCallLog(provider.getId(), scene, refId,
+                resp == null ? 0 : resp.promptTokens(),
+                resp == null ? 0 : resp.completionTokens(),
+                resp == null ? 0 : resp.totalTokens(),
+                latency, "success", null);
         String content = resp == null ? null : resp.content();
         log.info("[AI解读] scene={}, refId={}, latency={}ms, contentLen={}",
                 scene, refId, latency, content == null ? 0 : content.length());
@@ -227,5 +246,30 @@ public class AiLogExplainService {
             return "confidence must be in [0,1]";
         }
         return null;
+    }
+
+    /**
+     * 任务书 §5.7 "记 llm_call_log"。DeepSeek ¥0.01/1K tokens → 估算成本（元）。
+     * 不阻塞主流程：落库失败只打 warning。
+     */
+    private void saveCallLog(Long providerId, String sceneCode, Long refId,
+                             int promptTokens, int completionTokens, int totalTokens,
+                             long latencyMs, String status, String errorMsg) {
+        try {
+            com.aiops.module.llm.entity.LlmCallLog log_ = new com.aiops.module.llm.entity.LlmCallLog();
+            log_.setProviderId(providerId);
+            log_.setSceneCode(sceneCode);
+            log_.setRefId(refId);
+            log_.setPromptTokens(promptTokens);
+            log_.setCompletionTokens(completionTokens);
+            log_.setTotalTokens(totalTokens);
+            log_.setLatencyMs(latencyMs);
+            log_.setStatus(status);
+            log_.setErrorMsg(errorMsg);
+            log_.setCreateTime(LocalDateTime.now());
+            llmCallLogMapper.insert(log_);
+        } catch (Exception e) {
+            log.warn("[AI解读] 落 llm_call_log 失败（不影响主流程）：{}", e.getMessage());
+        }
     }
 }

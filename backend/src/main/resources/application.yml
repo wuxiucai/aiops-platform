@@ -32,9 +32,9 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
 
+# M4 收尾（审查方要求）：日志级别统一交给 logback-spring.xml，application.yml 只保留文件位置，
+# 避免 com.aiops:DEBUG 覆盖 xml 里的 WARN 造成 mapper SQL / 系统调用 DEBUG 噪音。
 logging:
-  level:
-    com.aiops: DEBUG
   file:
     name: logs/aiops-platform.log
 
