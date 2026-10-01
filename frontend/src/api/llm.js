@@ -37,3 +37,10 @@ export function similarCase(incidentId, topK = 3) {
   return request.post('/api/ai/similar-case', { incidentId, topK })
 }
 export function kbSyncEmbeddings()        { return request.post('/api/kb/case/sync-embeddings') }
+
+/* ================== M6 NL2DSL（自然语言→ES DSL） ================== */
+export function nl2dslGenerate(question)  { return request.post('/api/log/ai/nl2dsl', { question }) }
+export function nl2dslExecute(recordId)   { return request.post('/api/log/ai/nl2dsl/execute', { recordId }) }
+export function nlQueryHistory(limit = 20) {
+  return request.get('/api/log/nl-query-history', { params: { limit } })
+}
