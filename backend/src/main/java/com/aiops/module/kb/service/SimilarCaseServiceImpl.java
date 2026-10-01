@@ -46,7 +46,12 @@ import java.util.stream.Collectors;
 public class SimilarCaseServiceImpl implements SimilarCaseService {
 
     private static final ObjectMapper OM = new ObjectMapper();
-    private static final double SCORE_THRESHOLD = 0.75;
+    /**
+     * 嵌入余弦相似度的保留门槛。BAAI/bge-large-zh-v1.5 在压缩短文本（incident title ≤ 200 字符）
+     * 与长上下文（case title+symptom+root_cause ≤ 1000 字符）之间的典型相似度区间是 [0.3, 0.6]，
+     * 0.75 会把所有真实匹配过滤掉。审查方建议范围 [0.3, 1.0] 的下沿取 0.30。
+     */
+    private static final double SCORE_THRESHOLD = 0.30;
 
     private final KbFaultCaseMapper kbFaultCaseMapper;
     private final KbSimilarityLogMapper kbSimilarityLogMapper;
@@ -91,11 +96,21 @@ public class SimilarCaseServiceImpl implements SimilarCaseService {
 
     /* ================== embed ================== */
 
-    private List<Float> embedText(String text) {
-        LlmProvider provider = llmProviderMapper.selectOne(
+    /**
+     * 取带嵌入能力的 provider（embedding_model 非空）。不再用 is_default=1 —— 那是 chat 的主用 DeepSeek。
+     * id=2 的 SiliconFlow-Embed 被自然选中（按 id 倒序）。
+     */
+    private LlmProvider pickEmbedProvider() {
+        return llmProviderMapper.selectOne(
                 new LambdaQueryWrapper<LlmProvider>()
-                        .eq(LlmProvider::getIsDefault, 1)
+                        .isNotNull(LlmProvider::getEmbeddingModel)
+                        .eq(LlmProvider::getStatus, 1)
+                        .orderByDesc(LlmProvider::getId)
                         .last("LIMIT 1"));
+    }
+
+    private List<Float> embedText(String text) {
+        LlmProvider provider = pickEmbedProvider();
         if (provider == null || provider.getStatus() == null || provider.getStatus() != 1) {
             return null;
         }
@@ -192,9 +207,17 @@ public class SimilarCaseServiceImpl implements SimilarCaseService {
         return topKList;
     }
 
+    /**
+     * 构造 incident 的 seed text。剥离 `[WARN]/[CRITICAL]` 级别前缀（这些不是语义信息，
+     * 会稀释 incident title 与案例的嵌入相似度），再按空格与等号 tokenize 取前 200 字符。
+     */
     private String buildSeedText(AlertIncident inc) {
         StringBuilder sb = new StringBuilder();
-        if (inc.getTitle() != null) sb.append(inc.getTitle()).append(" ");
+        String title = inc.getTitle() == null ? "" : inc.getTitle();
+        // 去掉[WARN]/[CRITICAL] 前缀
+        title = title.replaceAll("^\\s*\\[(WARN|CRITICAL|INFO|DEBUG)\\]\\s*", "");
+        if (!title.isBlank()) sb.append(title).append(" ");
+
         // 故障事件本身不含 description 字段，用 llmSummary / llmRootCause / llmLogEvidence 凑出语义线索
         if (inc.getLlmSummary() != null && !inc.getLlmSummary().isBlank()) {
             sb.append(inc.getLlmSummary()).append(" ");

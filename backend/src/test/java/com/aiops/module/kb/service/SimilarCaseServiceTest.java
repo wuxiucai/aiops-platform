@@ -93,7 +93,7 @@ class SimilarCaseServiceTest {
         verify(kbSimilarityLogMapper, atLeastOnce()).insert(any(KbSimilarityLog.class));
     }
 
-    /* ============= 测试 2：score 过滤阈值 0.75 ============= */
+    /* ============= 测试 2：score 过滤阈值 0.30 ============= */
 
     @Test
     void dropsCasesBelowThreshold() {
@@ -109,9 +109,9 @@ class SimilarCaseServiceTest {
         when(client.embed(any(String.class))).thenReturn(List.of(1f, 0f));
         when(llmProviderService.buildClient(any())).thenReturn(client);
 
-        // cosine([1,0], [0,1])=0 → dropped; cosine([1,0],[0.5,0.5])=0.707 → dropped
-        KbFaultCase far = mkCase(10L, "db", 0f, 1f);
-        KbFaultCase close = mkCase(11L, "other", 0.5f, 0.5f);
+        // threshold = 0.30: 用正交向量（cos=0）必须被丢弃；采用小角度对齐向量（cos=0.970）必须保留
+        KbFaultCase far = mkCase(10L, "db", 0f, 1f);            // cos=0 < 0.3 → drop
+        KbFaultCase close = mkCase(11L, "other", 0.970f, 0.243f); // cos≈0.970 > 0.3 → keep
         when(kbFaultCaseMapper.selectList(any(LambdaQueryWrapper.class)))
                 .thenReturn(List.of(far, close));
 
@@ -119,7 +119,8 @@ class SimilarCaseServiceTest {
 
         @SuppressWarnings("unchecked")
         List<java.util.Map<String, Object>> cases = (List<java.util.Map<String, Object>>) out.get("cases");
-        assertEquals(0, cases.size(), "all scores < 0.75 should be dropped: " + cases);
+        assertEquals(1, cases.size(), "正交 cos=0 丢弃 + 对齐 cos≈0.970 保留: " + cases);
+        assertEquals(11L, cases.get(0).get("caseId"));
     }
 
     /* ============= 测试 3：LIKE 兜底路径 ============= */

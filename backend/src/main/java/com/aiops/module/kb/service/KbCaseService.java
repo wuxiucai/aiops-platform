@@ -43,7 +43,9 @@ public class KbCaseService {
 
         LlmProvider provider = llmProviderMapper.selectOne(
                 new LambdaQueryWrapper<LlmProvider>()
-                        .eq(LlmProvider::getIsDefault, 1)
+                        .isNotNull(LlmProvider::getEmbeddingModel)
+                        .eq(LlmProvider::getStatus, 1)
+                        .orderByDesc(LlmProvider::getId)
                         .last("LIMIT 1"));
         if (provider == null || provider.getStatus() == null || provider.getStatus() != 1) {
             log.warn("[KbCase] LLM Provider 不可用，无法回填");
