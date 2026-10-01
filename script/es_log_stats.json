@@ -1,0 +1,27 @@
+{
+  "es_status": "unreachable_at_snapshot_2026-10-01T23:30+08:00",
+  "notes": [
+    "elk91/elk92/elk93 三节点全 timeout — 可能虚拟机重启/断网/ssh 端口变化",
+    "LLM / 平台 / 数据 均落 MySQL，这个 snapshot 不会损失",
+    "M7 启动故障演示前需要恢复 ELK：systemctl start elasticsearch 或者重新配置 ssh tunnel"
+  ],
+  "es_log_stats_kept_from_prior_working_snapshot_2026_09_30": {
+    "index_prefix": "aiops-log-*",
+    "total_docs_then": 24832,
+    "by_service": {
+      "aiops-platform": 12544,
+      "order-service": 11765,
+      "payment-service": 523
+    },
+    "note": "2026-09-30 18:00 工作时间段的 ES 数据快照，论文素材就是这样指定"
+  },
+  "支持数据（本 snapshot 时间点 MySQL）": {
+    "llm_call_log_total": 268,
+    "llm_call_log_success": 259,
+    "metric_data_total": 115142,
+    "log_template_total": 375,
+    "log_template_stat_total": 1251,
+    "kb_fault_case_total": 3,
+    "kb_similarity_log_total_sample": "FROM kb_similarity_log_dump.txt"
+  }
+}

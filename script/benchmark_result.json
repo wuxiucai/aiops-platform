@@ -1,0 +1,365 @@
+{
+  "timestamp": "2026-10-01T23:26:09.244749",
+  "scenes": {
+    "log_explain": {
+      "calls": 10,
+      "success": 10,
+      "fail": 0,
+      "avg_latency_ms": 1442.0,
+      "total_tokens": 0
+    },
+    "alert_explain": {
+      "calls": 10,
+      "success": 10,
+      "fail": 0,
+      "avg_latency_ms": 2375.0,
+      "total_tokens": 0
+    },
+    "root_cause": {
+      "calls": 10,
+      "success": 10,
+      "fail": 0,
+      "avg_latency_ms": 4167.4,
+      "total_tokens": 0
+    }
+  },
+  "raw_calls": [
+    {
+      "scene": "log_explain",
+      "index": 0,
+      "ref": 385,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "log_explain",
+      "latency_ms": 1487,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "log_explain",
+      "index": 1,
+      "ref": 37,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "log_explain",
+      "latency_ms": 1741,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "log_explain",
+      "index": 2,
+      "ref": 362,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "log_explain",
+      "latency_ms": 1208,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "log_explain",
+      "index": 3,
+      "ref": 309,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "log_explain",
+      "latency_ms": 1482,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "log_explain",
+      "index": 4,
+      "ref": 223,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "log_explain",
+      "latency_ms": 1383,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "log_explain",
+      "index": 5,
+      "ref": 215,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "log_explain",
+      "latency_ms": 1355,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "log_explain",
+      "index": 6,
+      "ref": 15,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "log_explain",
+      "latency_ms": 1295,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "log_explain",
+      "index": 7,
+      "ref": 380,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "log_explain",
+      "latency_ms": 1406,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "log_explain",
+      "index": 8,
+      "ref": 179,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "log_explain",
+      "latency_ms": 1334,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "log_explain",
+      "index": 9,
+      "ref": 99,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "log_explain",
+      "latency_ms": 1729,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "alert_explain",
+      "index": 0,
+      "ref": 1055,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "alert_explain",
+      "latency_ms": 2678,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "alert_explain",
+      "index": 1,
+      "ref": 1055,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "alert_explain",
+      "latency_ms": 2876,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "alert_explain",
+      "index": 2,
+      "ref": 1056,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "alert_explain",
+      "latency_ms": 2275,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "alert_explain",
+      "index": 3,
+      "ref": 1053,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "alert_explain",
+      "latency_ms": 2476,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "alert_explain",
+      "index": 4,
+      "ref": 1050,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "alert_explain",
+      "latency_ms": 2656,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "alert_explain",
+      "index": 5,
+      "ref": 1050,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "alert_explain",
+      "latency_ms": 1913,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "alert_explain",
+      "index": 6,
+      "ref": 1051,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "alert_explain",
+      "latency_ms": 2590,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "alert_explain",
+      "index": 7,
+      "ref": 1053,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "alert_explain",
+      "latency_ms": 2217,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "alert_explain",
+      "index": 8,
+      "ref": 1055,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "alert_explain",
+      "latency_ms": 2453,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "alert_explain",
+      "index": 9,
+      "ref": 1056,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "alert_explain",
+      "latency_ms": 1616,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "root_cause",
+      "index": 0,
+      "ref": 4,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "root_cause",
+      "latency_ms": 3864,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "root_cause",
+      "index": 1,
+      "ref": 10,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "root_cause",
+      "latency_ms": 3982,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "root_cause",
+      "index": 2,
+      "ref": 44,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "root_cause",
+      "latency_ms": 4463,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "root_cause",
+      "index": 3,
+      "ref": 15,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "root_cause",
+      "latency_ms": 4722,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "root_cause",
+      "index": 4,
+      "ref": 5,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "root_cause",
+      "latency_ms": 3077,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "root_cause",
+      "index": 5,
+      "ref": 48,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "root_cause",
+      "latency_ms": 3673,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "root_cause",
+      "index": 6,
+      "ref": 52,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "root_cause",
+      "latency_ms": 5749,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "root_cause",
+      "index": 7,
+      "ref": 26,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "root_cause",
+      "latency_ms": 3208,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "root_cause",
+      "index": 8,
+      "ref": 27,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "root_cause",
+      "latency_ms": 4393,
+      "tokens": 0,
+      "isLlmFallback": null
+    },
+    {
+      "scene": "root_cause",
+      "index": 9,
+      "ref": 29,
+      "success": true,
+      "http_code": 200,
+      "schema_tag": "root_cause",
+      "latency_ms": 4543,
+      "tokens": 0,
+      "isLlmFallback": null
+    }
+  ],
+  "summary": {
+    "total_calls": 30,
+    "total_success": 30,
+    "success_rate_pct": 100.0,
+    "threshold_pct": 90,
+    "passed": true
+  }
+}

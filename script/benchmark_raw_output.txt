@@ -1,0 +1,9 @@
+
+scene           calls success   rate  avg_ms total_tok
+------------------------------------------------------------
+log_explain        10      10 100.0%   1451ms         0
+alert_explain      10      10 100.0%   2458ms         0
+root_cause         10      10 100.0%   4581ms         0
+
+TOTAL 30/30 = 100.0%
+required: ≥ 90%
