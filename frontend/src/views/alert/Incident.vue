@@ -108,6 +108,89 @@
           <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
         </el-table>
 
+        <!-- M5-6/7/8 根因面板 + 相似案例卡片 -->
+        <div style="margin: 16px 0 8px; font-weight: bold; display: flex; align-items: center; gap: 8px">
+          AI 诊断
+          <el-button size="small" type="primary" @click="refreshAi" :loading="aiLoading" icon="Refresh">刷新</el-button>
+        </div>
+
+        <!-- fallback banner （M5-7) -->
+        <el-alert
+          v-if="aiData && aiData.isLlmFallback === true"
+          type="warning"
+          show-icon
+          title="⚠ LLM 暂不可用，以下为规则结论"
+          style="margin-bottom: 12px"
+        />
+
+        <el-row :gutter="16" class="ai-grid">
+          <!-- 根因分析 -->
+          <el-col :span="12">
+            <el-card shadow="never">
+              <template #header>根因分析</template>
+              <el-descriptions :column="1" size="small" border v-if="aiData && aiData.rootCauses">
+                <el-descriptions-item v-if="aiData.primaryCause" label="primaryCause">
+                  <span v-for="(v, k) in aiData.primaryCause" :key="k" style="display:block; padding:2px 0">
+                    <strong>{{ k }}:</strong> {{ formatVal(v) }}
+                  </span>
+                </el-descriptions-item>
+                <el-descriptions-item label="rootCauses 数量">
+                  {{ (aiData.rootCauses || []).length }} 个候选
+                </el-descriptions-item>
+                <el-descriptions-item label="confidence">
+                  <el-progress :percentage="Math.round((aiData.confidence || 0) * 100)" />
+                </el-descriptions-item>
+                <el-descriptions-item v-if="aiData.reasoningChain" label="reasoningChain">
+                  <pre class="ai-code">{{ aiData.reasoningChain }}</pre>
+                </el-descriptions-item>
+                <el-descriptions-item v-if="aiData.suggestions" label="suggestions">
+                  <el-tag v-for="(s, i) in aiData.suggestions" :key="i" style="margin: 2px 4px">{{ s }}</el-tag>
+                </el-descriptions-item>
+                <el-descriptions-item v-if="aiData.needMoreInfo" label="needMoreInfo">
+                  <el-tag v-for="(s, i) in aiData.needMoreInfo" :key="i" type="warning" style="margin: 2px 4px">{{ s }}</el-tag>
+                </el-descriptions-item>
+              </el-descriptions>
+              <el-empty v-else description="点【刷新】生成 AI 根因分析" :image-size="60"/>
+            </el-card>
+          </el-col>
+
+          <!-- 相似案例卡片 (M5-8) -->
+          <el-col :span="12">
+            <el-card shadow="never">
+              <template #header>
+                相似案例
+                <el-tag v-if="similar.matchType" size="small" :type="similar.matchType === 'embedding' ? 'success' : 'info'" style="margin-left: 8px">
+                  {{ similar.matchType === 'embedding' ? '语义检索' : '关键词兜底' }}
+                </el-tag>
+              </template>
+              <div v-for="(c, i) in similar.cases" :key="i" class="similar-card">
+                <div class="similar-title">{{ c.title }}</div>
+                <el-progress
+                  :percentage="Math.round(c.similarity * 100)"
+                  :status="c.similarity > 0.7 ? 'success' : c.similarity > 0.5 ? 'warning' : 'exception'"
+                  style="margin: 6px 0"
+                />
+                <div class="similar-meta">
+                  <div><strong>症状</strong>：{{ truncate(c.symptom, 80) }}</div>
+                  <div><strong>根因</strong>：{{ truncate(c.rootCause, 80) }}</div>
+                  <div><strong>处置</strong>：{{ truncate(c.solution, 80) }}</div>
+                </div>
+              </div>
+              <el-empty v-if="!similar.cases || similar.cases.length === 0" description="点【刷新】检索相似案例" :image-size="60"/>
+            </el-card>
+          </el-col>
+        </el-row>
+
+        <!-- LLM 故障报告（W6） -->
+        <div style="margin: 16px 0 8px; font-weight: bold">故障报告（报告生成）</div>
+        <el-button size="small" @click="runReport" :loading="reportLoading" type="primary" plain>生成故障报告</el-button>
+        <div v-if="report" class="report-box">
+          <pre>{{ report }}</pre>
+          <el-alert v-if="reportCached" type="info" show-icon :closable="false" style="margin-top: 8px">
+            （来自缓存·再次调用时不重新调 LLM）
+          </el-alert>
+        </div>
+
         <div style="margin: 16px 0 8px; font-weight: bold">添加事件</div>
         <div class="add-note">
           <el-input v-model="noteInput" placeholder="填写事件说明（eventType=comment）" />
@@ -122,6 +205,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getIncidentPage, getIncident, resolveIncident, addTimeline } from '../../api/incident'
+import { rootCause, similarCase, incidentReport } from '../../api/llm'
 
 const rows = ref([])
 const total = ref(0)
@@ -215,6 +299,59 @@ async function onAddNote() {
   }
 }
 
+/* ================== M5-6/7/8 根因 + 相似案例 + 报告 ================== */
+const aiLoading = ref(false)
+const aiData = ref(null)          // root_cause 返回
+const similar = ref({ cases: [], matchType: null })  // similar-case 返回
+const report = ref('')
+const reportCached = ref(false)
+const reportLoading = ref(false)
+
+function truncate (s, n) {
+  if (!s) return ''
+  return s.length <= n ? s : s.substring(0, n - 1) + '…'
+}
+function formatVal (v) {
+  if (v == null) return '-'
+  if (Array.isArray(v)) return v.join(', ')
+  if (typeof v === 'object') return JSON.stringify(v)
+  return String(v)
+}
+
+async function refreshAi () {
+  if (!detail.value || !detail.value.id) return
+  aiLoading.value = true
+  try {
+    const [rc, sim] = await Promise.all([
+      rootCause(detail.value.id),
+      similarCase(detail.value.id, 3)
+    ])
+    aiData.value = rc.data || null
+    similar.value = { cases: (sim.data?.cases) || [], matchType: sim.data?.matchType || null }
+  } catch (e) {
+    ElMessage.error('AI 诊断失败: ' + (e?.message || '未知错误'))
+  } finally {
+    aiLoading.value = false
+  }
+}
+
+async function runReport () {
+  if (!detail.value || !detail.value.id) return
+  reportLoading.value = true
+  try {
+    const r = await incidentReport(detail.value.id)
+    if (r.code === 200) {
+      report.value = r.data?.markdown || ''
+      reportCached.value = r.data?.cached === true
+      ElMessage.success(reportCached.value ? '从缓存读取' : '生成完成')
+    } else {
+      ElMessage.error(r.msg || '报告生成失败')
+    }
+  } finally {
+    reportLoading.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -230,4 +367,25 @@ onMounted(load)
 }
 .add-note { display: flex; gap: 8px }
 .add-note .el-input { flex: 1 }
+
+/* M5-6/7/8 */
+.ai-grid { margin-bottom: 12px }
+.ai-code {
+  background: #f8f9fa;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: Consolas, monospace;
+  white-space: pre-wrap; word-break: break-all;
+}
+.similar-card {
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+.similar-title { font-weight: 500; font-size: 13px; }
+.similar-meta { font-size: 11px; color: #606266; margin-top: 4px; line-height: 1.5; }
+.report-box { background: #f8f9fa; padding: 12px; border-radius: 4px; margin-top: 8px; max-height: 400px; overflow: auto }
+.report-box pre { font-size: 13px; white-space: pre-wrap; word-break: break-all; margin: 0 }
 </style>
