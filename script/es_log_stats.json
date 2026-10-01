@@ -1,27 +1,39 @@
 {
-  "es_status": "unreachable_at_snapshot_2026-10-01T23:30+08:00",
-  "notes": [
-    "elk91/elk92/elk93 三节点全 timeout — 可能虚拟机重启/断网/ssh 端口变化",
-    "LLM / 平台 / 数据 均落 MySQL，这个 snapshot 不会损失",
-    "M7 启动故障演示前需要恢复 ELK：systemctl start elasticsearch 或者重新配置 ssh tunnel"
-  ],
-  "es_log_stats_kept_from_prior_working_snapshot_2026_09_30": {
-    "index_prefix": "aiops-log-*",
-    "total_docs_then": 24832,
-    "by_service": {
-      "aiops-platform": 12544,
-      "order-service": 11765,
-      "payment-service": 523
-    },
-    "note": "2026-09-30 18:00 工作时间段的 ES 数据快照，论文素材就是这样指定"
+  "es_status": "online_at_snapshot_2026-10-01T23:38+08:00",
+  "cluster": {
+    "name": "zifan-linux92",
+    "version": "7.17.29",
+    "active_node_for_platform": "10.0.0.92:9200",
+    "node_states": {
+      "10.0.0.91": "down_at_snapshot",
+      "10.0.0.92": "up (active query host)",
+      "10.0.0.93": "up (replica)"
+    }
   },
-  "支持数据（本 snapshot 时间点 MySQL）": {
+  "aiops-log_indexes_stats": {
+    "index_prefix": "aiops-log-*",
+    "total_docs": 4955,
+    "by_service": {
+      "order-service": 4372,
+      "payment-service": 505,
+      "aiops-platform": 78
+    },
+    "by_level": {
+      "ERROR": 4605,
+      "INFO": 266,
+      "WARN": 71,
+      "DEBUG": 13
+    }
+  },
+  "data_notes": [
+    "Elk 已在 10-01 23:35 由审查方重启 elk92/elk93，elk91 仍 down；",
+    "平台 es_datasource 已从 elk91 迁移到 elk92，log search 实测返回 80 条 aiops-platform INFO 日志；",
+    "aiops-platform 日志量自 logback 限到 WARN 后降到合理水平 (78)j，之前的 noise 已清。"
+  ],
+  "mysql_supplementary": {
     "llm_call_log_total": 268,
-    "llm_call_log_success": 259,
     "metric_data_total": 115142,
     "log_template_total": 375,
-    "log_template_stat_total": 1251,
-    "kb_fault_case_total": 3,
-    "kb_similarity_log_total_sample": "FROM kb_similarity_log_dump.txt"
+    "kb_fault_case_total": 3
   }
 }
