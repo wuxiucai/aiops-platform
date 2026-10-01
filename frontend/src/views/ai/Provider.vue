@@ -124,12 +124,20 @@ function defaultForm () {
   }
 }
 
+/**
+ * 脱敏 API key：
+ *   - null / "" / "****" → "****"
+ *   - 以 "sk-" 开头 → "sk-XXXX...XXXX"（保留头 3 尾 4）
+ *   - 其他形式 → "...XXXX"（只保留尾 4，避免误以为任何 OpenAI 兼容 key 都以 sk- 开头）
+ */
 function maskKey (k) {
   if (!k || k === '****') return '****'
-  if (k.length <= 8) return skMask(k)
-  return k.substring(0, 3) + '****' + k.substring(k.length - 4)
+  const s = String(k)
+  if (s.startsWith('sk-')) {
+    return s.length > 8 ? s.substring(0, 3) + '****' + s.substring(s.length - 4) : 'sk-****'
+  }
+  return s.length > 4 ? '...' + s.substring(s.length - 4) : '...'
 }
-function skMask (k) { return k ? 'sk-****' : '****' }
 
 async function load () {
   loading.value = true
