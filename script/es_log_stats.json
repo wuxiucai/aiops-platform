@@ -1,35 +1,35 @@
 {
-  "es_status": "online_at_snapshot_2026-10-01T23:38+08:00",
+  "es_status": "online_at_snapshot_2026-10-01_late",
   "cluster": {
     "name": "zifan-linux92",
     "version": "7.17.29",
-    "active_node_for_platform": "10.0.0.92:9200",
-    "node_states": {
-      "10.0.0.91": "down_at_snapshot",
-      "10.0.0.92": "up (active query host)",
-      "10.0.0.93": "up (replica)"
+    "status": "green",
+    "number_of_nodes": 3,
+    "nodes": {
+      "10.0.0.91": "up (主查询节点， es_datasource.id=1 指向)",
+      "10.0.0.92": "up (副本)",
+      "10.0.0.93": "up (副本)"
     }
   },
   "aiops-log_indexes_stats": {
     "index_prefix": "aiops-log-*",
-    "total_docs": 4955,
+    "total_docs": 29610,
     "by_service": {
-      "order-service": 4372,
-      "payment-service": 505,
-      "aiops-platform": 78
+      "aiops-platform": 17284,
+      "order-service": 11784,
+      "payment-service": 542
     },
     "by_level": {
-      "ERROR": 4605,
-      "INFO": 266,
-      "WARN": 71,
-      "DEBUG": 13
+      "DEBUG": 9406,
+      "ERROR": 8405,
+      "INFO": 7860,
+      "WARN": 3939
     }
   },
-  "data_notes": [
-    "Elk 已在 10-01 23:35 由审查方重启 elk92/elk93，elk91 仍 down；",
-    "平台 es_datasource 已从 elk91 迁移到 elk92，log search 实测返回 80 条 aiops-platform INFO 日志；",
-    "aiops-platform 日志量自 logback 限到 WARN 后降到合理水平 (78)j，之前的 noise 已清。"
-  ],
+  "backend_verification": {
+    "log_search_via_elk91_returned": 991,
+    "service_filtered_correctly": true
+  },
   "mysql_supplementary": {
     "llm_call_log_total": 268,
     "metric_data_total": 115142,
