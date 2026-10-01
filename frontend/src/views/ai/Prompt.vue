@@ -147,6 +147,16 @@ async function edit (row) {
 }
 
 async function save () {
+  // 前置校验：outputSchema 必须是合法 JSON 对象（否则后端写入后再 put 会 500 且破坏场景链路）
+  const schema = editRow.value.outputSchema
+  if (schema != null && String(schema).trim() !== '') {
+    try {
+      JSON.parse(schema)
+    } catch (e) {
+      ElMessage.error(`Output Schema 不是合法 JSON：${e.message}`)
+      return
+    }
+  }
   saving.value = true
   try {
     const r = await savePrompt(editRow.value)
