@@ -177,18 +177,29 @@ ${alertList}
 
 输出JSON：
 {"summary":"日志整体情况一句话总结（50字内）","abnormalTemplates":[{"templateId":1,"template":"","issue":"问题说明","severity":"高/中/低","possibleCause":"","count":0}],"correlationAnalysis":"多个异常模板之间的关联性分析","rootCauseHint":"从日志看最可能的根因方向","impact":"影响评估","suggestions":["..."],"confidence":0.8}', 1, 1),
-('nl2es_dsl', '自然语言查日志',
-'你是日志查询助手，将自然语言转换为 Elasticsearch Query DSL。ES版本：7.x。可用索引模式：${indexPatterns}。字段映射：时间=${timeField} 内容=${messageField} 级别=${levelField} 服务=${serviceField}。级别取值：ERROR / WARN / INFO / DEBUG。严格输出JSON。',
-'问题：${question}
-输出JSON：
-{"index":"aiops-log-*","query":{},"sort":[{"@timestamp":"desc"}],"size":20,"explain":"查询意图说明","valid":true}
+('nl2es_dsl', '日志查询 DSL 生成',
+'你是日志查询助手。将自然语言转换为 Elasticsearch Query DSL。ES版本：7.x。可用索引模式：aiops-log-*。字段映射：时间=@timestamp, 内容=message, 级别=level, 服务=service, traceId=traceId。级别取值：ERROR / WARN / INFO / DEBUG。严格输出 JSON，不要 markdown 围栏。',
+'把下列自然语言查询转换为 ES Query DSL JSON：
+问题：${question}
+可用时间窗：${timeHint}
+可用字段：${fieldInfo}
+可用服务名集合：${serviceList}
 
-规则（必须遵守）：
-- 必须包含时间范围过滤，未指定时默认最近24小时
-- 只能使用上述已声明字段，不得编造字段名
-- 禁止使用 script 查询
-- 禁止任何写入或删除操作
-- 无法理解时 valid 设为 false', 1, 1),
+输出 JSON 必须是完整的 query 对象（从 query 根开始），结构：
+{
+  "query": {...bool / match / term / range 任意合法 ES 7 DSL...},
+  "sort": [{"@timestamp":"desc"}],
+  "size": ≤50 的整数,
+  "track_total_hits": true,
+  "aggs": {"by_level":{"terms":{"field":"level.keyword","size":10}},"by_service":{"terms":{"field":"service.keyword","size":10}}} （可选）
+}
+
+规则：
+1. timeFilter 恒为 {range:{"@timestamp":{"gte":"...","lte":"..."}}}，如无明确时间 默认近 24 小时
+2. 只能使用上述字段，不要引入 script / painless / _update / _delete
+3. size ≤ 100
+4. 服务名仅在 serviceList 中选择
+5. 输出不带解释，仅 JSON 对象', 2, 1),
 ('nl_answer', '查询结果归纳',
 '你是运维助手。基于给定的日志查询结果，用简洁中文回答用户的原始问题。',
 '用户问题：${question}
