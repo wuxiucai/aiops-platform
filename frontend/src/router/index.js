@@ -33,10 +33,13 @@ export function registerDynamicRoutes(menus) {
       // 兼容两种数据：子路由 path 为绝对路径（/monitor/dashboard）或相对路径（/dashboard）
       const fullPath = child.path.startsWith('/') ? child.path : (menu.path + child.path)
       if (router.hasRoute(fullPath)) return
-      const component = viewModules[`../views/${child.component}.vue`]
+
+      let component = viewModules[`../views/${child.component}.vue`]
       if (!component) {
-        console.warn('[router] 视图组件不存在:', child.component)
-        return
+        // 兜底：vite 的 import.meta.glob 只在 dev server 启动时扫描；
+        // 后续新增的 .vue 文件必须动态 import 兜底，避免必须重启 dev server。
+        console.warn('[router] glob 未收录，回退动态 import:', child.component)
+        component = () => import(/* @vite-ignore */ `../views/${child.component}.vue`)
       }
       router.addRoute('Main', {
         path: fullPath,
@@ -68,10 +71,18 @@ router.beforeEach(async to => {
       return { path: '/login' }
     }
   }
-  if (!dynamicRegistered && userStore.menus.length) {
+  if (userStore.menus.length) {
+    const firstTime = !dynamicRegistered
+    // 幂等：hasRoute 会跳过已注册的路由；每次都跑一遍让新增菜单立即生效
     registerDynamicRoutes(userStore.menus)
-    // 重新解析当前目标，避免匹配不到刚注册的路由
-    return { path: to.fullPath, replace: true }
+    if (firstTime) {
+      // 首次注册：重新解析当前目标，避免匹配不到刚注册的路由
+      return { path: to.fullPath, replace: true }
+    }
+    // 非首次：若目标 path 仍未注册（用户访问了新增菜单但还没匹配的 route），重新解析一次
+    if (!router.getRoutes().some(r => r.path === to.path)) {
+      return { path: to.fullPath, replace: true }
+    }
   }
   return true
 })
