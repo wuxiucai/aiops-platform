@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: aiops-agent
+
+server:
+  port: 0        # agent 自身不监听端口 （纯 Push)
+
+# 平台侧
+platform:
+  url: ${PLATFORM_URL:http://127.0.0.1:8080}
+
+# Agent 身份 （下载时下发）
+agent:
+  key: ${AGENT_KEY:agent-key-not-set}
+  target-id: ${TARGET_ID:1}
+  version: 1.0.0
+  # 采集间隔（秒）
+  collect-interval-sec: 30
+  # 心跳间隔（秒）
+  heartbeat-interval-sec: 300
+
+logging:
+  level:
+    com.aiops.agent: INFO
