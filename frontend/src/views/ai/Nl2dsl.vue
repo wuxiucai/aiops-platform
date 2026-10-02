@@ -294,7 +294,7 @@ const chartOption = computed(() => {
       name: '命中量',
       type: 'bar',
       data: vals,
-      itemStyle: { color: '#5470c6' }
+      itemStyle: { color: '#4361ee', borderRadius: [4, 4, 0, 0] }
     }]
   }
 })

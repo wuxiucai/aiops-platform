@@ -23,7 +23,9 @@
     <div class="main">
       <div class="messages" ref="msgRef" v-loading="thinking">
         <div v-for="(m, i) in current.messages" :key="i" :class="['msg', m.role]">
-          <div class="avatar">{{ m.role === 'user' ? '我' : 'AI' }}</div>
+          <div class="avatar" :class="m.role === 'user' ? 'avatar-user' : 'avatar-ai'">
+            {{ m.role === 'user' ? '我' : 'AI' }}
+          </div>
           <div class="bubble">
             <div class="content" v-if="m.role === 'user'">{{ m.content }}</div>
             <div class="content md" v-else-if="m.content" v-html="mdRender(m.content)"></div>
@@ -33,8 +35,12 @@
           </div>
         </div>
         <div v-if="current.messages.length === 0" class="empty">
-          <p>试一下：</p>
-          <el-tag v-for="q in examples" :key="q" style="margin: 4px" @click="ask(q)">{{ q }}</el-tag>
+          <div class="empty-icon">🤖</div>
+          <p class="empty-title">我是你的智能运维助手</p>
+          <p class="empty-sub">可以问我关于监控指标、告警与日志的问题：</p>
+          <div class="example-tags">
+            <el-tag v-for="q in examples" :key="q" class="example-tag" @click="ask(q)">{{ q }}</el-tag>
+          </div>
         </div>
       </div>
 
@@ -43,11 +49,12 @@
           v-model="input"
           type="textarea"
           :rows="2"
-          placeholder="问点什么（支持中文）..."
+          resize="none"
+          placeholder="问点什么（支持中文），Ctrl + Enter 发送..."
           @keydown.ctrl.enter="send"
         />
-        <el-button type="primary" @click="send" :loading="thinking" style="margin-left: 8px">
-          发送 (Ctrl+Enter)
+        <el-button type="primary" round class="send-btn" @click="send" :loading="thinking">
+          <el-icon style="margin-right: 4px"><Promotion /></el-icon>发送
         </el-button>
       </div>
     </div>
@@ -56,7 +63,7 @@
 
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, Promotion } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
 const input = ref('')
@@ -175,32 +182,50 @@ async function send () {
 </script>
 
 <style scoped>
-.chat-page { display: flex; height: calc(100vh - 60px); }
-.sidebar { width: 260px; border-right: 1px solid #e8e8e8; display: flex; flex-direction: column; }
-.side-head { padding: 12px; border-bottom: 1px solid #e8e8e8; }
-.side-list { flex: 1; overflow: hidden; }
-.side-item { padding: 12px; cursor: pointer; border-bottom: 1px solid #f5f5f5; }
-.side-item.active { background: #ecf5ff; border-left: 3px solid #409eff; }
-.side-item .title { font-weight: 500; font-size: 14px; margin-bottom: 4px; }
-.side-item .meta { font-size: 12px; color: #999; }
+.chat-page { display: flex; height: calc(100vh - 60px); background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(21,32,71,.05); }
 
+/* 会话侧栏 */
+.sidebar { width: 250px; border-right: 1px solid #eef1f6; display: flex; flex-direction: column; background: #fafbfd; }
+.side-head { padding: 12px; border-bottom: 1px solid #eef1f6; }
+.side-list { flex: 1; overflow: hidden; }
+.side-item { padding: 10px 14px; margin: 4px 8px; border-radius: 8px; cursor: pointer; transition: background .2s; }
+.side-item:hover { background: #eef1fe; }
+.side-item.active { background: #eef1fe; border-left: 3px solid #4361ee; padding-left: 11px; }
+.side-item .title { font-weight: 500; font-size: 13.5px; color: #2b3245; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side-item .meta { font-size: 12px; color: #97a1b5; }
+
+/* 消息区 */
 .main { flex: 1; display: flex; flex-direction: column; }
-.messages { flex: 1; overflow-y: auto; padding: 20px; background: #fafafa; }
-.msg { display: flex; margin-bottom: 16px; }
+.messages { flex: 1; overflow-y: auto; padding: 24px 28px; background: #fff; }
+.msg { display: flex; margin-bottom: 20px; }
 .msg.user { justify-content: flex-end; }
-.avatar { width: 36px; height: 36px; border-radius: 50%; background: #409eff; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; margin: 0 12px; flex-shrink: 0; }
-.msg.user .avatar { background: #67c23a; order: 1; }
-.msg.assistant .avatar { background: #909399; }
-.bubble { max-width: 70%; background: #fff; padding: 10px 14px; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); white-space: pre-wrap; word-wrap: break-word; }
-.msg.user .bubble { background: #e1f3d8; }
-.content { font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+.avatar { width: 34px; height: 34px; border-radius: 10px; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; margin: 0 12px; flex-shrink: 0; }
+.avatar-ai { background: linear-gradient(135deg, #4361ee 0%, #7a5cff 100%); box-shadow: 0 3px 8px rgba(67,97,238,.35); }
+.msg.user .avatar { order: 1; }
+.avatar-user { background: linear-gradient(135deg, #3ba272 0%, #58c08f 100%); }
+.bubble { max-width: 72%; background: #f5f7fc; padding: 11px 15px; border-radius: 4px 14px 14px 14px; white-space: pre-wrap; word-wrap: break-word; }
+.msg.user .bubble { background: linear-gradient(135deg, #4361ee 0%, #5b7bff 100%); color: #fff; border-radius: 14px 4px 14px 14px; box-shadow: 0 4px 10px rgba(67,97,238,.28); }
+.content { font-size: 14px; line-height: 1.65; white-space: pre-wrap; }
+.msg.user .content.md:deep(code) { background: rgba(255,255,255,.18); color: #fff; }
 .content.md:deep(p) { margin: 4px 0; }
-.content.md:deep(pre) { background: #f5f5f5; padding: 8px; border-radius: 4px; overflow-x: auto; }
-.content.md:deep(code) { background: #f5f5f5; padding: 2px 4px; border-radius: 2px; }
-.fallback-tag { color: #e6a23c; font-size: 12px; margin-top: 6px; padding: 2px 6px; background: #fdf6ec; border-radius: 2px; }
+.content.md:deep(pre) { background: #eef1f6; padding: 8px; border-radius: 6px; overflow-x: auto; }
+.content.md:deep(code) { background: #eef1f6; padding: 2px 5px; border-radius: 4px; font-size: 12.5px; }
+.thinking { color: #97a1b5; }
+.fallback-tag { color: #e6a23c; font-size: 12px; margin-top: 8px; padding: 3px 8px; background: #fdf6ec; border-radius: 6px; display: inline-block; }
 .stream-cursor { animation: blink 1s infinite; }
-.empty { text-align: center; color: #999; margin-top: 80px; }
-.empty p { cursor: default; }
-.input-row { padding: 12px 20px; border-top: 1px solid #e8e8e8; display: flex; background: #fff; }
+
+/* 空状态 */
+.empty { text-align: center; color: #97a1b5; margin-top: 72px; }
+.empty-icon { font-size: 44px; margin-bottom: 14px; }
+.empty-title { font-size: 17px; font-weight: 600; color: #2b3245; margin-bottom: 6px; }
+.empty-sub { font-size: 13px; margin-bottom: 18px; }
+.example-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; max-width: 520px; margin: 0 auto; }
+.example-tag { cursor: pointer; padding: 6px 12px; height: auto; border-radius: 16px; transition: all .2s; }
+.example-tag:hover { background: #eef1fe; color: #4361ee; border-color: #bcc4f9; }
+
+/* 输入区 */
+.input-row { padding: 14px 20px; border-top: 1px solid #eef1f6; display: flex; align-items: flex-end; gap: 10px; background: #fff; }
+.send-btn { height: 40px; padding: 0 22px; flex-shrink: 0; }
+
 @keyframes blink { 0%,50% { opacity: 1 } 51%,100% { opacity: 0 } }
 </style>

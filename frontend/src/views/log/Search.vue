@@ -300,7 +300,7 @@ async function loadHistogram() {
         name: '日志量',
         type: 'bar',
         data: times.map((t, i) => [t, counts[i]]),
-        itemStyle: { color: '#5470c6' }
+        itemStyle: { color: '#4361ee', borderRadius: [4, 4, 0, 0] }
       }]
     }
     histogramLoaded.value = true

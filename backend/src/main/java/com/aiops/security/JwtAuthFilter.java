@@ -45,6 +45,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         // 仅登录/验证码/静态资源/swagger 放行（info 需要登录，不在白名单）
         return uri.equals("/api/auth/login")
                 || uri.equals("/api/auth/captcha")
+                || uri.startsWith("/api/agent/metric")
+                || uri.startsWith("/api/agent/heartbeat")
                 || uri.startsWith("/swagger-ui")
                 || uri.startsWith("/v3/api-docs")
                 || uri.equals("/")
