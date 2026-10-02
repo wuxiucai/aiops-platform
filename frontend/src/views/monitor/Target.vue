@@ -161,14 +161,13 @@ async function onEdit () {
       logServiceName: editForm.logServiceName,
       description: editForm.description
     }
-    const r = await request.put('/api/monitor/target', body)
-    if (r.code === 200) {
-      ElMessage.success('已保存')
-      editVisible.value = false
-      await loadTargets()
-    } else {
-      ElMessage.error(r.msg || '保存失败')
-    }
+    // 拦截器在 code=200 时直接 resolve(data)；非 200 已经 ElMessage 弹错 + reject
+    await request.put('/api/monitor/target', body)
+    ElMessage.success('已保存')
+    editVisible.value = false
+    await loadTargets()
+  } catch (e) {
+    /* 拦截器已弹错误 */
   } finally {
     editing.value = false
   }
@@ -185,15 +184,11 @@ async function onDelete () {
     )
   } catch { return }
   try {
-    const r = await request.delete(`/api/monitor/target/${currentTarget.value.id}`)
-    if (r.code === 200) {
-      ElMessage.success(`已删除 ${targetName}`)
-      await loadTargets()
-    } else {
-      ElMessage.error(r.msg || '删除失败')
-    }
+    await request.delete(`/api/monitor/target/${currentTarget.value.id}`)
+    ElMessage.success(`已删除 ${targetName}`)
+    await loadTargets()
   } catch (e) {
-    ElMessage.error('删除失败: ' + (e?.message || '未知错误'))
+    /* 拦截器已弹错误 */
   }
 }
 
@@ -218,21 +213,19 @@ async function onCreate () {
       description: createForm.description,
       status: 1
     }
-    const r = await request.post('/api/monitor/target', body)
-    if (r.code === 200) {
-      ElMessage.success('创建成功')
-      createVisible.value = false
-      const prevFirst = targets.value[0]?.id
-      await loadTargets()
-      // 切换到刚创建的（可能是首已不是/也很近）
-      if (targets.value.length > 0) {
-        const nextId = targets.value.find(t => t.name === createForm.name)?.id ?? prevFirst
-        currentTargetId.value = nextId
-        onTargetChange()
-      }
-    } else {
-      ElMessage.error(r.msg || '创建失败')
+    await request.post('/api/monitor/target', body)
+    ElMessage.success('创建成功')
+    createVisible.value = false
+    const createdName = createForm.name
+    const prevFirst = targets.value[0]?.id
+    await loadTargets()
+    if (targets.value.length > 0) {
+      const nextId = targets.value.find(t => t.name === createdName)?.id ?? prevFirst
+      currentTargetId.value = nextId
+      onTargetChange()
     }
+  } catch (e) {
+    /* 拦截器已弹错误 */
   } finally {
     creating.value = false
   }

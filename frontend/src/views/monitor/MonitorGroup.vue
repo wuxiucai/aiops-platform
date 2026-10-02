@@ -82,17 +82,12 @@ async function save () {
   }
   saving.value = true
   try {
-    let r
-    if (form.value.id) r = await request.put('/api/monitor/group', form.value)
-    else              r = await request.post('/api/monitor/group', form.value)
-    if (r.code === 200) {
-      ElMessage.success('保存成功')
-      dialog.value = false
-      load()
-    } else {
-      ElMessage.error(r.msg || '保存失败')
-    }
-  } finally { saving.value = false }
+    if (form.value.id) await request.put('/api/monitor/group', form.value)
+    else               await request.post('/api/monitor/group', form.value)
+    ElMessage.success('保存成功')
+    dialog.value = false
+    load()
+  } catch (e) { /* 拦截器已弹错误 */ } finally { saving.value = false }
 }
 
 async function onDelete (row) {
@@ -103,9 +98,11 @@ async function onDelete (row) {
       { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' }
     )
   } catch { return }
-  const r = await request.delete(`/api/monitor/group/${row.id}`)
-  if (r.code === 200) { ElMessage.success('已删除'); load() }
-  else ElMessage.error(r.msg || '删除失败')
+  try {
+    await request.delete(`/api/monitor/group/${row.id}`)
+    ElMessage.success('已删除')
+    load()
+  } catch (e) { /* 拦截器已弹错误 */ }
 }
 
 onMounted(load)

@@ -129,30 +129,28 @@ async function save () {
   saving.value = true
   try {
     const body = { ...form.value, metricKeys: JSON.stringify(form.value.metricKeys) }
-    let r
-    if (form.value.id) r = await request.put('/api/monitor/collect', body)
-    else              r = await request.post('/api/monitor/collect', body)
-    if (r.code === 200) {
-      ElMessage.success('保存成功')
-      dialog.value = false
-      load()
-    } else ElMessage.error(r.msg || '保存失败')
-  } finally { saving.value = false }
+    if (form.value.id) await request.put('/api/monitor/collect', body)
+    else               await request.post('/api/monitor/collect', body)
+    ElMessage.success('保存成功')
+    dialog.value = false
+    load()
+  } catch (e) { /* 拦截器已弹错误 */ } finally { saving.value = false }
 }
 
 async function toggle (row) {
   const body = { ...row, metricKeys: row.metricKeys }
-  const r = await request.put('/api/monitor/collect', body)
-  if (r.code === 200) ElMessage.success(row.status === 1 ? '已启用' : '已停用')
-  else { ElMessage.error(r.msg || '更新失败'); load() }
+  try {
+    await request.put('/api/monitor/collect', body)
+    ElMessage.success(row.status === 1 ? '已启用' : '已停用')
+  } catch (e) { load() }
 }
 
 async function runNow (row) {
-  const r = await request.post(`/api/monitor/collect/task/${row.id}/run`)
-  if (r.code === 200) {
+  try {
+    await request.post(`/api/monitor/collect/task/${row.id}/run`)
     ElMessage.success(`正在执行 (约 ${row.intervalSec}s)...`)
     setTimeout(load, 2000)
-  } else ElMessage.error(r.msg || '执行失败')
+  } catch (e) { /* 拦截器已弹错误 */ }
 }
 
 async function onDelete (row) {
@@ -163,9 +161,11 @@ async function onDelete (row) {
       { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' }
     )
   } catch { return }
-  const r = await request.delete(`/api/monitor/collect/${row.id}`)
-  if (r.code === 200) { ElMessage.success('已删除'); load() }
-  else ElMessage.error(r.msg || '删除失败')
+  try {
+    await request.delete(`/api/monitor/collect/${row.id}`)
+    ElMessage.success('已删除')
+    load()
+  } catch (e) { /* 拦截器已弹错误 */ }
 }
 
 onMounted(() => {
