@@ -47,6 +47,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 || uri.equals("/api/auth/captcha")
                 || uri.startsWith("/api/agent/metric")
                 || uri.startsWith("/api/agent/heartbeat")
+                || uri.startsWith("/api/agent/download")  // elk 服务器 wget 拉 jar 不带 token
                 || uri.startsWith("/swagger-ui")
                 || uri.startsWith("/v3/api-docs")
                 || uri.equals("/")
