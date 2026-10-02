@@ -22,7 +22,7 @@
             <el-icon><component :is="menu.icon || 'Menu'" /></el-icon>
             <span>{{ menu.name }}</span>
           </template>
-          <el-menu-item v-for="child in menu.children || []" :key="child.id"
+          <el-menu-item v-for="child in (menu.children || []).filter(c => c && c.path)" :key="child.id"
                         :index="child.path.startsWith('/') ? child.path : menu.path + child.path">
             <el-icon><component :is="child.icon || 'Document'" /></el-icon>
             <span>{{ child.name }}</span>
