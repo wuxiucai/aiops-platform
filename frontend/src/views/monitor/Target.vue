@@ -15,7 +15,7 @@
         </div>
       </template>
 
-      <!-- 当前对象基本信息 -->
+      <!-- 当前对象基本信息 + 操作 -->
       <el-descriptions :column="4" border v-if="currentTarget">
         <el-descriptions-item label="名称">{{ currentTarget.name }}</el-descriptions-item>
         <el-descriptions-item label="类型">
@@ -25,6 +25,10 @@
         </el-descriptions-item>
         <el-descriptions-item label="地址">{{ currentTarget.ip }}{{ currentTarget.port ? ':' + currentTarget.port : '' }}</el-descriptions-item>
         <el-descriptions-item label="日志服务名">{{ currentTarget.logServiceName || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="操作" :span="4">
+          <el-button size="small" type="primary" plain @click="openEditDialog" v-if="hasPerm('monitor:target:update')">编辑</el-button>
+          <el-button size="small" type="danger" plain @click="onDelete" v-if="hasPerm('monitor:target:delete')">删除</el-button>
+        </el-descriptions-item>
       </el-descriptions>
     </el-card>
 
@@ -33,6 +37,34 @@
       <template #header>{{ currentTarget.name }} · 近 1 小时趋势</template>
       <BaseChart :option="trendOption" height="360px" v-loading="chartLoading" />
     </el-card>
+    <!-- 编辑监控对象 dialog (复用新建表单） -->
+    <el-dialog v-model="editVisible" title="编辑监控对象" width="520px">
+      <el-form :model="editForm" label-width="110px">
+        <el-form-item label="名称" required>
+          <el-input v-model="editForm.name"/>
+        </el-form-item>
+        <el-form-item label="类型" required>
+          <el-select v-model="editForm.targetType" style="width: 100%" :disabled="true"/>
+        </el-form-item>
+        <el-form-item label="IP / 主机" required>
+          <el-input v-model="editForm.ip"/>
+        </el-form-item>
+        <el-form-item label="OS">
+          <el-input v-model="editForm.os"/>
+        </el-form-item>
+        <el-form-item label="日志服务名">
+          <el-input v-model="editForm.logServiceName"/>
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="editForm.description" type="textarea" :rows="2"/>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editVisible=false">取消</el-button>
+        <el-button type="primary" @click="onEdit" :loading="editing">保存修改</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 新建监控对象 dialog -->
     <el-dialog v-model="createVisible" title="新建监控对象" width="520px">
       <el-form :model="createForm" label-width="110px">
@@ -67,9 +99,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, reactive } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, reactive, watch } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import BaseChart from '../../components/BaseChart.vue'
 import { listTarget, queryMetric } from '../../api/monitor'
 import request from '../../utils/request'
@@ -91,6 +123,79 @@ const creating = ref(false)
 const createForm = reactive({
   name: '', targetType: 'host', ip: '', os: '', logServiceName: '', description: ''
 })
+
+/* 编辑 dialog 表单与状态 */
+const editVisible = ref(false)
+const editing = ref(false)
+const editForm = reactive({
+  id: null, name: '', targetType: 'host', ip: '', os: '', logServiceName: '', description: ''
+})
+
+function openEditDialog () {
+  if (!currentTarget.value) return
+  Object.assign(editForm, {
+    id: currentTarget.value.id,
+    name: currentTarget.value.name,
+    targetType: currentTarget.value.targetType,
+    ip: currentTarget.value.ip,
+    os: currentTarget.value.os || '',
+    logServiceName: currentTarget.value.logServiceName || '',
+    description: currentTarget.value.description || ''
+  })
+  editVisible.value = true
+}
+
+async function onEdit () {
+  if (!editForm.name || !editForm.ip) {
+    ElMessage.warning('名称和 IP 必填')
+    return
+  }
+  editing.value = true
+  try {
+    const body = {
+      id: editForm.id,
+      name: editForm.name,
+      targetType: editForm.targetType,
+      ip: editForm.ip,
+      os: editForm.os,
+      logServiceName: editForm.logServiceName,
+      description: editForm.description
+    }
+    const r = await request.put('/api/monitor/target', body)
+    if (r.code === 200) {
+      ElMessage.success('已保存')
+      editVisible.value = false
+      await loadTargets()
+    } else {
+      ElMessage.error(r.msg || '保存失败')
+    }
+  } finally {
+    editing.value = false
+  }
+}
+
+async function onDelete () {
+  if (!currentTarget.value) return
+  const targetName = currentTarget.value.name
+  try {
+    await ElMessageBox.confirm(
+      `确定删除监控对象 "${targetName}"？删除后其 metric_data / collect_task 数据不会清除（保留历史），但会持续上报.`,
+      '删除监控对象',
+      { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' }
+    )
+  } catch { return }
+  try {
+    const r = await request.delete(`/api/monitor/target/${currentTarget.value.id}`)
+    if (r.code === 200) {
+      ElMessage.success(`已删除 ${targetName}`)
+      await loadTargets()
+    } else {
+      ElMessage.error(r.msg || '删除失败')
+    }
+  } catch (e) {
+    ElMessage.error('删除失败: ' + (e?.message || '未知错误'))
+  }
+}
 
 function openCreateDialog () {
   Object.assign(createForm, { name: '', targetType: 'host', ip: '', os: '', logServiceName: '', description: '' })
