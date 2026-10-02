@@ -36,6 +36,7 @@ public class NotifyServiceImpl implements NotifyService {
     private final SysMessageMapper sysMessageMapper;
     private final NotifyRecordMapper notifyRecordMapper;
     private final NotifyChannelMapper notifyChannelMapper;
+    private final com.aiops.module.notify.service.MailService mailService;
     private final WebClient.Builder webClientBuilder = WebClient.builder();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -51,6 +52,8 @@ public class NotifyServiceImpl implements NotifyService {
                     sendInapp(rule, record, creatorUserId);
                 } else if (ch.toLowerCase().startsWith("webhook")) {
                     sendWebhookAll(rule, record);
+                } else if ("email".equalsIgnoreCase(ch)) {
+                    sendEmailAll(rule, record);
                 } else {
                     log.info("[Notify] 忽略未实现渠道 {}", ch);
                 }
@@ -118,6 +121,66 @@ public class NotifyServiceImpl implements NotifyService {
             }
             notifyRecordMapper.insert(nr);
         }
+    }
+
+    /** email 渠道：从 notify_channel (channel_type=email) 取 mail_config_id + receivers JSON 发送 */
+    private void sendEmailAll(AlertRule rule, AlertRecord record) {
+        List<NotifyChannel> list = notifyChannelMapper.selectList(new LambdaQueryWrapper<NotifyChannel>()
+                .eq(NotifyChannel::getChannelType, "email")
+                .eq(NotifyChannel::getEnabled, 1));
+        if (list.isEmpty()) {
+            log.info("[Notify] 无可用 email 渠道");
+            return;
+        }
+        String subject = "[" + (record.getLevel() == null ? "WARN" : record.getLevel()) + "] "
+                + record.getTitle();
+        String content = "告警时间：" + (record.getFirstTriggerTime() == null ? "-" : record.getFirstTriggerTime())
+                + "\n告警对象：" + (record.getTargetId() == null ? "-" : "target#" + record.getTargetId())
+                + "\n指标：" + (record.getMetricKey() == null ? "-" : record.getMetricKey())
+                + " = " + (record.getTriggerValue() == null ? "-" : record.getTriggerValue())
+                + "\n阈值：" + (record.getThresholdValue() == null ? "-" : record.getThresholdValue())
+                + "\n内容：" + (record.getContent() == null ? "-" : record.getContent());
+        for (NotifyChannel ch : list) {
+            List<String> receivers = parseReceivers(ch.getConfig());
+            if (receivers.isEmpty()) {
+                log.warn("[Notify] email 渠道#{} 无 receivers 配置", ch.getId());
+                continue;
+            }
+            Long mailCfg = ch.getMailConfigId();  // 可能为 null → MailService 用 is_default
+            NotifyRecord nr = new NotifyRecord();
+            nr.setRefType("alert");
+            nr.setRefId(record.getId());
+            nr.setChannelId(ch.getId());
+            nr.setSendTime(LocalDateTime.now());
+            for (String recv : receivers) {
+                nr.setReceiver(recv);
+                nr.setContent(subject);
+                try {
+                    boolean ok = mailService.sendAlert(mailCfg, recv, subject, content);
+                    nr.setStatus(ok ? "success" : "fail");
+                    if (!ok) nr.setErrorMsg("MailService 返回 false");
+                } catch (Exception e) {
+                    nr.setStatus("fail");
+                    nr.setErrorMsg(e.getMessage());
+                }
+                notifyRecordMapper.insert(nr);
+            }
+        }
+    }
+
+    private List<String> parseReceivers(String configJson) {
+        List<String> out = new ArrayList<>();
+        if (configJson == null || configJson.isBlank()) return out;
+        try {
+            JsonNode node = objectMapper.readTree(configJson);
+            JsonNode arr = node.path("receivers");
+            if (arr.isArray()) {
+                arr.forEach(n -> out.add(n.asText()));
+            }
+        } catch (Exception e) {
+            log.warn("[Notify] email 渠道 config 解析失败： {}", e.getMessage());
+        }
+        return out;
     }
 
     private String extractUrl(String configJson) {

@@ -1,43 +1,41 @@
-package com.aiops.module.notify.entity;
+package com.aiops.module.monitor.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
 import java.time.LocalDateTime;
 
-/**
- * 通知渠道
- */
+/** 模板下的单个组件。 */
 @Data
-@TableName("notify_channel")
-public class NotifyChannel {
+@TableName("dashboard_widget")
+public class DashboardWidget {
 
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    @TableField("name")
-    private String name;
+    @TableField("template_id")
+    private Long templateId;
 
-    /** email|webhook|dingtalk|feishu|inapp */
-    @TableField("channel_type")
-    private String channelType;
+    /** stat_card | line_chart | top_alert | top_template | incident_list | metric_compare */
+    @TableField("widget_type")
+    private String widgetType;
 
+    @TableField("title")
+    private String title;
+
+    /** 按 widget_type 定义的 config JSON */
     @TableField("config")
     private String config;
 
-    @TableField("mail_config_id")
-    private Long mailConfigId;
-    @TableField("enabled")
-    private Integer enabled;
+    @TableField("sort")
+    private Integer sort;
 
     @TableField("create_time")
     private LocalDateTime createTime;
 
-    @TableLogic
     @TableField("deleted")
     private Integer deleted;
 }
