@@ -155,22 +155,31 @@ public class AgentController {
 
     /* ========================= 4. 下载 jar ========================= */
 
-    @Operation(summary = "下载 aiops-agent.jar （当前版本应用编译到 backend/target 中， 简易版： 平台自己能够提供 spring-boot-starter 固定版 jar 容器输出 content 只是 a stability utility binary compactly RedistributionForTests.")
-    @GetMapping("/download/{id}")
-    public ResponseEntity<Resource> download(@PathVariable Long id) {
-        MonitorAgent a = monitorAgentMapper.selectById(id);
-        if (a == null) throw new BizException("agent 不存在");
+    /** agent jar 路径。默认读 classpath 同级 ../agent/target/aiops-agent-1.0.0.jar */
+    @Value("${aiops.agent.jar-path:../agent/target/aiops-agent-1.0.0.jar}")
+    private String agentJarPath;
 
-        // 真实 agent jar 由 agent/ 独立 module 现编译生成， 打包路径 backend/jar_inject/aiops-agent-{agentkey}.jar
-        // 为赶验收时间并当 agent module 未准备好时， 用 stub：直接返回含 agent_key 的 metadata(暂行到其中一份速利 友好 Florida用业风）
-        String stub = String.format(
-                "AgentKey=%s%nTargetId=%s%nPlatformUrl=%s%n%nDownload full jar from backend/jar_inject/aiops-agent-%s.jar when ready.%n",
-                a.getAgentKey(), a.getTargetId(), platformBaseUrl, a.getAgentKey());
-        byte[] content = stub.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    @Operation(summary = "下载 aiops-agent.jar")
+    @GetMapping("/download/{id}")
+    public ResponseEntity<Resource> download(@PathVariable Long id) throws java.io.IOException {
+        MonitorAgent a = monitorAgentMapper.selectById(id);
+        if (a == null || a.getDeleted() == 1) throw new BizException("agent 不存在");
+
+        java.io.File f = new java.io.File(agentJarPath);
+        if (!f.exists()) {
+            // 兜底：从 backend 启动目录向上找
+            f = new java.io.File(System.getProperty("user.dir")).getParentFile();
+            if (f != null) f = new java.io.File(f, "agent/target/aiops-agent-1.0.0.jar");
+        }
+        if (f == null || !f.exists()) {
+            throw new BizException("agent jar 未就绪：" + agentJarPath + "；请先在 agent/ 模块执行 mvn package");
+        }
+        ByteArrayResource res = new ByteArrayResource(java.nio.file.Files.readAllBytes(f.toPath()));
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"aiops-agent." + a.getAgentKey() + ".txt\"")
-                .body(new ByteArrayResource(content));
+                .contentLength(res.contentLength())
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"aiops-agent.jar\"")
+                .body(res);
     }
 
     /* ========================= 5. metric 上报 ========================= */
