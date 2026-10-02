@@ -135,8 +135,12 @@ async function loadTargets () {
   }
 }
 
-function openCreateDialog () {
-  createForm.targetId = targets.value.length > 0 ? targets.value[0].id : null
+async function openCreateDialog () {
+  // 弹窗打开前拉一遍 target，避免 targets 在初始 onMounted 未完成时为空
+  await loadTargets()
+  if (targets.value.length > 0) {
+    createForm.targetId = targets.value[0].id
+  }
   createVisible.value = true
 }
 
