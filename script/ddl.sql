@@ -413,3 +413,70 @@ CREATE TABLE sys_message (
   create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
   KEY idx_user_read (user_id, is_read)
 );
+
+-- ============ A 方案扩展 (2026-10-02): Linux agent / SMTP / 自定义大盘 ============
+
+CREATE TABLE monitor_agent (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  target_id BIGINT NOT NULL,
+  agent_key VARCHAR(64) NOT NULL UNIQUE,
+  status TINYINT DEFAULT 1,
+  version VARCHAR(32),
+  last_heartbeat DATETIME,
+  last_metric_time DATETIME,
+  install_command TEXT,
+  create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+  update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted TINYINT NOT NULL DEFAULT 0,
+  KEY idx_target (target_id)
+);
+
+CREATE TABLE monitor_agent_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  agent_id BIGINT NOT NULL,
+  config_key VARCHAR(64) NOT NULL,
+  config_value VARCHAR(255),
+  UNIQUE KEY uk_agent_key (agent_id, config_key)
+);
+
+CREATE TABLE sys_mail_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(64) NOT NULL,
+  smtp_host VARCHAR(128) NOT NULL,
+  smtp_port INT NOT NULL DEFAULT 465,
+  username VARCHAR(128) NOT NULL,
+  password_enc VARCHAR(1024) NOT NULL,
+  from_name VARCHAR(64) DEFAULT NULL,
+  `ssl` TINYINT DEFAULT 1,
+  enabled TINYINT DEFAULT 1,
+  is_default TINYINT DEFAULT 0,
+  remark VARCHAR(255),
+  create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+  update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted TINYINT NOT NULL DEFAULT 0
+);
+
+-- (add via ALTER if upgrading: ALTER TABLE notify_channel ADD COLUMN mail_config_id BIGINT NULL;)
+
+CREATE TABLE dashboard_template (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  name VARCHAR(64) NOT NULL,
+  is_default TINYINT DEFAULT 0,
+  layout_config JSON,
+  create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+  update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted TINYINT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE dashboard_widget (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  template_id BIGINT NOT NULL,
+  widget_type VARCHAR(32) NOT NULL,
+  title VARCHAR(128) NOT NULL,
+  config JSON,
+  sort INT DEFAULT 0,
+  create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+  deleted TINYINT NOT NULL DEFAULT 0,
+  KEY ix_template (template_id)
+);
