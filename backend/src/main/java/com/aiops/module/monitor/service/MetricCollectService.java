@@ -3,6 +3,7 @@ package com.aiops.module.monitor.service;
 import com.aiops.datasource.metric.ActuatorCollector;
 import com.aiops.datasource.metric.MetricCollector;
 import com.aiops.datasource.metric.OshiCollector;
+import com.aiops.datasource.metric.PrometheusCollector;
 import com.aiops.module.monitor.entity.CollectTask;
 import com.aiops.module.monitor.entity.MetricData;
 import com.aiops.module.monitor.entity.MonitorTarget;
@@ -33,6 +34,7 @@ public class MetricCollectService {
     private final MetricDataMapper metricDataMapper;
     private final OshiCollector oshiCollector;
     private final ActuatorCollector actuatorCollector;
+    private final PrometheusCollector prometheusCollector;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /** 执行一条采集任务，返回写入条数 */
@@ -44,7 +46,12 @@ public class MetricCollectService {
         }
         List<String> metricKeys = parseKeys(task.getMetricKeys());
         List<MetricCollector.MetricPoint> points = new ArrayList<>();
-        if (oshiCollector.supports(target.getTargetType())) {
+        if (prometheusCollector.supports(target.getTargetType())) {
+            /* S4: prometheus 拉模式， 走 target_url */
+            if (target.getTargetUrl() != null && !target.getTargetUrl().isBlank()) {
+                points = prometheusCollector.collect(target.getId(), metricKeys, target.getTargetUrl());
+            }
+        } else if (oshiCollector.supports(target.getTargetType())) {
             points = oshiCollector.collect(target.getId(), metricKeys);
         } else if (actuatorCollector.supports(target.getTargetType())
                 && target.getIp() != null && target.getPort() != null) {

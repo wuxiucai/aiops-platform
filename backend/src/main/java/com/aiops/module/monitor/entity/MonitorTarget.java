@@ -26,6 +26,10 @@ public class MonitorTarget {
     @TableField("target_type")
     private String targetType;
 
+    /** S4: prometheus 拉取 URL， 如 http://x.x.x.x:9100/metrics */
+    @TableField("target_url")
+    private String targetUrl;
+
     @TableField("ip")
     private String ip;
 

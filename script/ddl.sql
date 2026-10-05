@@ -496,3 +496,6 @@ CREATE TABLE dashboard_group (
 
 ALTER TABLE dashboard_template ADD COLUMN group_id BIGINT NULL COMMENT 'S3 归属分组';
 ALTER TABLE dashboard_template ADD INDEX idx_user_group (user_id, group_id);
+
+-- ============== S4 Prometheus client ==============
+ALTER TABLE monitor_target ADD COLUMN target_url VARCHAR(255) NULL COMMENT 'S4 prometheus 拉取 URL, 如 http://x.x.x.x:9100/metrics' AFTER ip;
