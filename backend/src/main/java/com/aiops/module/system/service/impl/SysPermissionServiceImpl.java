@@ -70,8 +70,10 @@ public class SysPermissionServiceImpl extends ServiceImpl<SysPermissionMapper, S
 
     @Override
     public List<SysPermission> tree() {
+        // 只返回 M 类型菜单（按钮 B 不该出现在 /auth/info.menus，B 的 path=NULL 会让前端 startsWith 崩）
         List<SysPermission> all = list(new LambdaQueryWrapper<SysPermission>()
                 .eq(SysPermission::getStatus, 1)
+                .eq(SysPermission::getPermType, "M")
                 .orderByAsc(SysPermission::getSort));
         return buildTree(all, 0L);
     }
