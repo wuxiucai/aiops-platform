@@ -65,6 +65,7 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { Plus, Promotion } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import { getToken, removeToken, removeUser } from '../../utils/auth'
 
 const input = ref('')
 const thinking = ref(false)
@@ -110,14 +111,43 @@ async function send () {
   scrollBottom()
 
   try {
-    const token = localStorage.getItem('aiops-token')
-    const url = '/api/ai/chat/stream?question=' + encodeURIComponent(q)
-    const resp = await fetch(url, {
-      method: 'GET',
-      headers: { 'Authorization': 'Bearer ' + token }
+    // 用统一的 auth util：token key 是 'aiops_token'（下划线）
+    // 之前 hardcode 'aiops-token'（连字符）导致永远拿到 null
+    const token = getToken()
+    // POST + JSON body：GET query 中文在 Windows 上乱码（Tomcat 不按 UTF-8 解码）
+    const resp = await fetch('/api/ai/chat/stream', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json;charset=UTF-8',
+        'Accept': 'text/event-stream'
+      },
+      body: JSON.stringify({ question: q })
     })
     if (!resp.ok) {
       aiMsg.value.content = `调用失败：HTTP ${resp.status}`
+      aiMsg.value.done = true
+      thinking.value = false
+      return
+    }
+    // 后端 JwtAuthFilter.write401 返回 HTTP 200 + application/json body {code:401,...}
+    // Content-Type 就不是 text/event-stream，需要在读流之前识别
+    const contentType = (resp.headers.get('content-type') || '').toLowerCase()
+    if (!contentType.includes('text/event-stream')) {
+      // 非 SSE，按普通 JSON 读一次性
+      let body
+      try { body = await resp.json() } catch { body = null }
+      if (body && body.code === 401) {
+        aiMsg.value.content = '⚠ ' + (body.msg || '登录已过期，请重新登录')
+        aiMsg.value.done = true
+        thinking.value = false
+        // 用统一的 auth util 清理（与 request.js 拦截器行为对齐）
+        removeToken()
+        removeUser()
+        setTimeout(() => { window.location.href = '/login' }, 800)
+        return
+      }
+      aiMsg.value.content = '⚠ ' + (body?.msg || `非预期响应（content-type: ${contentType || 'unknown'}）`)
       aiMsg.value.done = true
       thinking.value = false
       return
@@ -133,19 +163,43 @@ async function send () {
     const decoder = new TextDecoder('utf-8')
     let buf = ''
     let fallback = false
+    // 应用层结束标志：后端发来 {type:done} 或 {type:error} 时置 true。
+    // 结束循环不能依赖 reader.read() 的流结束信号（done=true）：
+    // 经过 vite dev proxy 时，Spring 端 emitter.complete() 关闭 TCP
+    // 后 proxy 不一定立刻把 close 传播给浏览器，read() 可能长时间挂住，
+    // finally 不执行 → thinking 不复位 → 页面 loading 一直转。
+    let appDone = false
 
-    while (true) {
+    // 兜底超时：即使 done 帧丢了/连接异常挂住，也让 UI 在 N 秒后必然恢复，
+    // 否则用户只能刷新页面。120s 与后端 SseEmitter 超时对齐。
+    const overallTimeout = setTimeout(() => {
+      if (!appDone) {
+        console.warn('[chat] SSE 超时兜底：120s 未收到 done，强制结束')
+        appDone = true
+        aiMsg.value.content += '\n\n⚠ 响应超时（连接已中断）'
+        aiMsg.value.done = true
+        reader.cancel().catch(() => {})
+      }
+    }, 120_000)
+
+    while (!appDone) {
       const { done, value } = await reader.read()
       if (done) break
       buf += decoder.decode(value, { stream: true })
 
-      // SSE 按 \n\n 分段
+      // SSE 帧以空行（\n\n）结尾，帧内可能有多行：data:/event:/id:/retry:。
+      // 后端 Spring SseEmitter 默认会输出 "data:{...}\nevent:token\n\n"，
+      // 因此必须逐行解析拼接 data:，不能假设整帧只有一行 data。
       let idx
       while ((idx = buf.indexOf('\n\n')) >= 0) {
-        const frame = buf.slice(0, idx).trim()
+        const frame = buf.slice(0, idx)
         buf = buf.slice(idx + 2)
-        if (!frame.startsWith('data:')) continue
-        const dataStr = frame.replace(/^data:\s*/, '')
+        // 拼接帧内所有 data: 行（去前缀 + 去行尾 \r）
+        const dataStr = frame.split('\n')
+          .filter(line => line.startsWith('data:'))
+          .map(line => line.slice(5).replace(/^\s+/, '').replace(/\r$/, ''))
+          .join('')
+        if (!dataStr) continue
         try {
           const evt = JSON.parse(dataStr)
           if (evt.type === 'token') {
@@ -153,9 +207,11 @@ async function send () {
             scrollBottom()
           } else if (evt.type === 'done') {
             aiMsg.value.done = true
+            appDone = true   // 应用层结束 → 主动 break，不等 TCP 关闭
           } else if (evt.type === 'error') {
             aiMsg.value.content += '\n\n⚠ ' + (evt.message || evt.data?.message || 'error')
             aiMsg.value.done = true
+            appDone = true
           } else if (evt.type === 'fallback') {
             fallback = true
             aiMsg.value.fallback = true
@@ -164,12 +220,14 @@ async function send () {
             aiMsg.value.fallback = true
           }
         } catch (e) {
-          // 未完整 JSON：先压入 buf 等待下一段（因为是按 \n\n 切，面积上两次仍然是 JSON 完整）
-          buf = dataStr + buf
-          break
+          // JSON 解析失败：打印日志便于排查，但不要把残帧塞回 buf（会造成死循环）
+          console.warn('[chat] SSE 帧解析失败', dataStr.slice(0, 120), e)
         }
+        if (appDone) break
       }
+      if (appDone) reader.cancel().catch(() => {})
     }
+    clearTimeout(overallTimeout)
     if (!aiMsg.value.done) aiMsg.value.done = true
     current.value.updatedAt = new Date().toISOString().substring(0, 16)
   } catch (e) {
@@ -182,7 +240,19 @@ async function send () {
 </script>
 
 <style scoped>
-.chat-page { display: flex; height: calc(100vh - 60px); background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(21,32,71,.05); }
+/* 布局账目：
+   - el-header 高 60px（Element Plus 默认）
+   - el-main padding 上下各 20px
+   - chat-page 直接放在 main 里，所以可用高 = 100vh - 60 - 40 = 100vh - 100px
+   之前写 100vh-60px 导致 chat-page 比可见区域高 40px，输入框被裁掉。 */
+.chat-page {
+  display: flex;
+  height: calc(100vh - 100px);
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(21,32,71,.05);
+}
 
 /* 会话侧栏 */
 .sidebar { width: 250px; border-right: 1px solid #eef1f6; display: flex; flex-direction: column; background: #fafbfd; }
