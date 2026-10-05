@@ -150,24 +150,22 @@ async function create () {
   if (!createForm.targetId) return
   creating.value = true
   try {
-    const r = await createAgentApi({ targetId: createForm.targetId })
-    if (r.code === 200) {
-      installCmd.value = r.data.installCommand
-      installCmdVisible.value = true
-      createVisible.value = false
-      load()
-    } else {
-      ElMessage.error(r.msg || '创建失败')
-    }
-  } finally {
+    // 拦截器在 code=200 时直接 resolve(data)；非 200 已弹错，不再判 r.code
+    const data = await createAgentApi({ targetId: createForm.targetId })
+    installCmd.value = data?.installCommand || ''
+    installCmdVisible.value = true
+    createVisible.value = false
+    load()
+  } catch (e) { /* 拦截器已弹错 */ } finally {
     creating.value = false
   }
 }
 
 async function toggle (row) {
-  const r = await toggleAgent(row.id)
-  if (r.code === 200) ElMessage.success(row.status === 1 ? '已启用' : '已停用')
-  else ElMessage.error(r.msg || '失败')
+  try {
+    await toggleAgent(row.id)
+    ElMessage.success(row.status === 1 ? '已启用' : '已停用')
+  } catch (e) { /* 拦截器已弹错 */ }
   load()
 }
 
@@ -181,8 +179,10 @@ function downloadJar (row) {
 }
 
 function copyInstallCmd (row) {
-  window.open(`/api/agent/download/${row.id}`, '_blank')
-  copyText(`wget http://localhost:8080/api/agent/download/${row.id} -O aiops-agent.jar && nohup java -jar aiops-agent.jar --platform.url=http://localhost:8080 --agent.key=${row.agentKey || '<hidden>'} --target.id=${row.targetId} > aiops-agent.log 2>&1 &`)
+  // 从后端 /api/agent/list 拿到完整 install_command（含正确 base-url 和 --agent.target-id）
+  request.get(`/api/agent/install-command/${row.id}`).then(cmd => {
+    copyText(typeof cmd === 'string' ? cmd : (cmd?.installCommand || ''))
+  }).catch(() => ElMessage.warning('获取安装命令失败'))
 }
 
 function copyText (txt) {

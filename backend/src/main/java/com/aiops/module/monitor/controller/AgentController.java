@@ -153,6 +153,19 @@ public class AgentController {
         return Result.ok();
     }
 
+    /* ========================= 3.5 查询 install_command ========================= */
+
+    @Operation(summary = "查询一条 agent 的 install_command（用于前端复制）")
+    @com.aiops.security.RequirePerm("monitor:target:list")
+    @GetMapping("/install-command/{id}")
+    public Result<Map<String, String>> installCommand(@PathVariable Long id) {
+        MonitorAgent a = monitorAgentMapper.selectById(id);
+        if (a == null || a.getDeleted() == 1) throw new BizException("agent 不存在");
+        Map<String, String> m = new HashMap<>();
+        m.put("installCommand", a.getInstallCommand() == null ? "" : a.getInstallCommand());
+        return Result.ok(m);
+    }
+
     /* ========================= 4. 下载 jar ========================= */
 
     /** agent jar 路径。默认读 classpath 同级 ../agent/target/aiops-agent-1.0.0.jar */
