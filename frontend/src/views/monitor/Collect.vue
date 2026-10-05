@@ -52,8 +52,18 @@
             <el-option v-for="m in metricDefs" :key="m.metricKey" :value="m.metricKey" :label="`${m.metricKey} — ${m.metricName || m.unit || ''}`"/>
           </el-select>
         </el-form-item>
-        <el-form-item label="采集间隔（s)" required>
-          <el-input-number v-model="form.intervalSec" :min="5" :max="3600" :step="5"/>
+        <el-form-item label="采集间隔" required>
+          <el-select v-model="form.intervalSec" style="width: 100%">
+            <el-option :value="1" label="1 秒（临时调试，勿长期使用）"/>
+            <el-option :value="5" label="5 秒（高频排障）"/>
+            <el-option :value="15" label="15 秒（推荐）"/>
+            <el-option :value="30" label="30 秒"/>
+            <el-option :value="60" label="1 分钟"/>
+            <el-option :value="300" label="5 分钟"/>
+          </el-select>
+          <div v-if="form.intervalSec === 1" class="interval-warn">
+            ⚠️ 1 秒采集会让 agent 接口和 MySQL 写入频率显著上升，仅用于临时调试
+          </div>
         </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="form.status" :active-value="1" :inactive-value="0"/>
@@ -178,4 +188,13 @@ onMounted(() => {
 <style scoped>
 .page-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .page-head h2 { margin: 0; font-size: 20px; }
+.interval-warn {
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: #fdf6ec;
+  color: #e6a23c;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+}
 </style>

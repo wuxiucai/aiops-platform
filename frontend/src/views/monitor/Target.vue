@@ -10,6 +10,7 @@
                 {{ t.name }}
               </el-radio-button>
             </el-radio-group>
+            <RefreshSelector v-model="refreshMs" @change="onRefreshChange" />
             <el-button type="primary" size="small" @click="openCreateDialog" v-if="hasPerm('monitor:target:add')" icon="Plus">新建监控对象</el-button>
           </div>
         </div>
@@ -103,6 +104,7 @@ import { ref, computed, onMounted, onBeforeUnmount, reactive, watch } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import BaseChart from '../../components/BaseChart.vue'
+import RefreshSelector from '../../components/RefreshSelector.vue'
 import { listTarget, queryMetric } from '../../api/monitor'
 import request from '../../utils/request'
 import { useUserStore } from '../../store/user'
@@ -116,6 +118,21 @@ const currentTargetId = ref(1)
 const trendOption = ref({})
 const chartLoading = ref(false)
 let timer = null
+
+// 自动刷新间隔（毫秒），0=暂停
+const REFRESH_KEY = 'aiops_target_refresh_ms'
+const refreshMs = ref(Number(localStorage.getItem(REFRESH_KEY)) || 30000)
+
+function startTimer () {
+  if (timer) { clearInterval(timer); timer = null }
+  if (refreshMs.value > 0) {
+    timer = setInterval(loadTrend, refreshMs.value)
+  }
+}
+function onRefreshChange (ms) {
+  localStorage.setItem(REFRESH_KEY, String(ms))
+  startTimer()
+}
 
 /* 新建 dialog 表单与状态 */
 const createVisible = ref(false)
@@ -289,10 +306,10 @@ function onTargetChange() {
 
 onMounted(() => {
   loadTargets()
-  timer = setInterval(loadTrend, 30_000)
+  startTimer()
 })
 
-onBeforeUnmount(() => clearInterval(timer))
+onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 </script>
 
 <style scoped>

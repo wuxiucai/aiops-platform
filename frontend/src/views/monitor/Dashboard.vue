@@ -20,7 +20,7 @@
       <template #header>
         <div class="trend-header">
           <span>本机 CPU / 内存 · 近 1 小时趋势</span>
-          <el-tag size="small" effect="plain" type="info">每 30s 自动刷新</el-tag>
+          <RefreshSelector v-model="refreshMs" @change="onRefreshChange" />
         </div>
       </template>
       <BaseChart :option="trendOption" height="360px" />
@@ -31,12 +31,28 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import BaseChart from '../../components/BaseChart.vue'
+import RefreshSelector from '../../components/RefreshSelector.vue'
 import { getOverview, queryMetric } from '../../api/monitor'
 import { minutesAgo, nowString } from '../../utils/time'
 
 const overview = ref({})
 const trendOption = ref({})
 let timer = null
+
+// 自动刷新间隔（毫秒），0=暂停。localStorage 记忆上次选择
+const REFRESH_KEY = 'aiops_dashboard_refresh_ms'
+const refreshMs = ref(Number(localStorage.getItem(REFRESH_KEY)) || 30000)
+
+function startTimer () {
+  if (timer) { clearInterval(timer); timer = null }
+  if (refreshMs.value > 0) {
+    timer = setInterval(() => { loadOverview(); loadTrend() }, refreshMs.value)
+  }
+}
+function onRefreshChange (ms) {
+  localStorage.setItem(REFRESH_KEY, String(ms))
+  startTimer()
+}
 
 const statCards = computed(() => [
   {
@@ -142,10 +158,10 @@ async function loadTrend() {
 onMounted(() => {
   loadOverview()
   loadTrend()
-  timer = setInterval(loadTrend, 30_000)
+  startTimer()
 })
 
-onBeforeUnmount(() => clearInterval(timer))
+onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 </script>
 
 <style scoped>
