@@ -2,6 +2,14 @@ server:
   port: 8080
   servlet:
     context-path: /
+    # Windows 中文系统下 Tomcat 默认 URI 编码可能是 GBK，导致 @RequestParam 中文乱码
+    # 显式强制 UTF-8，并确保 GET query 参数解码用 UTF-8
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+  tomcat:
+    uri-encoding: UTF-8
 
 spring:
   application:
