@@ -161,47 +161,59 @@ async function save () {
   try {
     const body = { ...form.value }
     if (!body.apiKey) delete body.apiKey  // 不改不传
-    let r
-    if (body.id) r = await updateProvider(body)
-    else        r = await addProvider(body)
-    if (r.code === 200) {
-      ElMessage.success('保存成功')
-      dialog.value = false
-      load()
-    } else {
-      ElMessage.error(r.msg || '保存失败')
-    }
+    // request.js 拦截器在 code===200 时已返回 res.data，失败会 reject
+    // 所以这里走到下一个 tick 就说明成功，不需要再判断 r.code
+    if (body.id) await updateProvider(body)
+    else        await addProvider(body)
+    ElMessage.success('保存成功')
+    dialog.value = false
+    load()
+  } catch (e) {
+    // 拦截器已经 ElMessage.error 过了，这里不再重复提示
   } finally { saving.value = false }
 }
 
 async function setDefault (row) {
-  const ok = await ElMessageBox.confirm(`确定把 ${row.name} 设为默认 LLM Provider 吗？`, '设为默认', { type: 'warning' })
+  const ok = await ElMessageBox.confirm(`确定把 ${row.name} 设为默认 LLM Provider 吗？`, '设为默认', { type: 'warning' }).catch(() => false)
   if (!ok) return
-  const r = await setDefaultProvider(row.id)
-  if (r.code === 200) { ElMessage.success('已设为默认'); load() } else ElMessage.error(r.msg || '失败')
+  try {
+    await setDefaultProvider(row.id)
+    ElMessage.success('已设为默认')
+    load()
+  } catch (e) { /* 拦截器已提示 */ }
 }
 
 async function toggle (row) {
-  const r = await updateProvider({ id: row.id, status: row.status })
-  if (r.code === 200) ElMessage.success(row.status === 1 ? '已启用' : '已停用')
-  else { ElMessage.error(r.msg || '更新失败'); load() }
+  try {
+    await updateProvider({ id: row.id, status: row.status })
+    ElMessage.success(row.status === 1 ? '已启用' : '已停用')
+  } catch (e) {
+    // 失败回滚视图
+    row.status = row.status === 1 ? 0 : 1
+  }
 }
 
 async function test (row) {
   ElMessage.info('测试中...')
-  const r = await testProvider(row.id)
-  if (r.code === 200 && r.data?.ok) {
-    ElMessage.success(`${row.name} 连接成功：v=${r.data.version || '?'} models=${r.data.models ?? 0}`)
-  } else {
-    ElMessage.error(`${row.name} 测试失败：${r.msg || r.data?.error || '未知错误'}`)
-  }
+  try {
+    // request.js 拦截器已解包到 data 层；后端返回 Map：{ success: bool, error: string }
+    const r = await testProvider(row.id)
+    if (r?.success) {
+      ElMessage.success(`${row.name} 连接成功`)
+    } else {
+      ElMessage.error(`${row.name} 测试失败：${r?.error || '未知错误'}`)
+    }
+  } catch (e) { /* 拦截器已提示 */ }
 }
 
 async function del (row) {
-  const ok = await ElMessageBox.confirm(`确认删除 ${row.name}？删除后不可恢复，耗影响场景立即失效。`, '删除确认', { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' })
+  const ok = await ElMessageBox.confirm(`确认删除 ${row.name}？删除后不可恢复，耗影响场景立即失效。`, '删除确认', { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' }).catch(() => false)
   if (!ok) return
-  const r = await deleteProvider(row.id)
-  if (r.code === 200) { ElMessage.success('已删除'); load() } else ElMessage.error(r.msg || '删除失败')
+  try {
+    await deleteProvider(row.id)
+    ElMessage.success('已删除')
+    load()
+  } catch (e) { /* 拦截器已提示 */ }
 }
 
 onMounted(load)
