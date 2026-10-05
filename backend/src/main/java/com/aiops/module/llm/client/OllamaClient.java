@@ -115,10 +115,17 @@ public class OllamaClient implements LlmClient {
                     .retrieve()
                     .bodyToMono(String.class)
                     .block(Duration.ofSeconds(10));
-            return resp != null && resp.contains("models");
+            if (resp == null) {
+                throw new IllegalStateException("响应体为 null");
+            }
+            if (!resp.contains("models")) {
+                throw new IllegalStateException("响应缺少 models 字段: " +
+                        (resp.length() > 200 ? resp.substring(0, 200) + "..." : resp));
+            }
+            return true;
         } catch (Exception e) {
             log.warn("[LLM] ollama 连通测试失败: {}", e.getMessage());
-            return false;
+            throw new IllegalStateException(e.getMessage(), e);
         }
     }
 }

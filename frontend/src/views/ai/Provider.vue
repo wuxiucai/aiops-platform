@@ -142,8 +142,9 @@ function maskKey (k) {
 async function load () {
   loading.value = true
   try {
+    // 拦截器 code===200 时已解包返回 res.data（这里是 List<LlmProvider> 数组）
     const r = await listProvider()
-    rows.value = r.data || []
+    rows.value = r || []
   } finally { loading.value = false }
 }
 
