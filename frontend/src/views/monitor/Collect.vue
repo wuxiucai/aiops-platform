@@ -106,19 +106,21 @@ function targetName (id) {
 async function load () {
   loading.value = true
   try {
-    const r = await request.get('/api/monitor/collect/page', { params: { current: 1, size: 100 } })
-    rows.value = (r.data?.records) || []
+    // 后端控制器实际暴露在 /api/monitor/collect/task/*（不是 /collect/*）
+    const r = await request.get('/api/monitor/collect/task/page', { params: { current: 1, size: 100 } })
+    // axios 拦截器 code===200 时已返回 res.data（分页对象本身），r.records 直接取
+    rows.value = r?.records || []
   } finally { loading.value = false }
 }
 
 async function loadTargets () {
   const r = await request.get('/api/monitor/target/page', { params: { current: 1, size: 100 } })
-  targets.value = r.data?.records || []
+  targets.value = r?.records || []
 }
 
 async function loadMetricDefs () {
   const r = await request.get('/api/monitor/metric/definitions')
-  metricDefs.value = r.data || []
+  metricDefs.value = r || []
 }
 
 function openForm (row) {
@@ -139,8 +141,8 @@ async function save () {
   saving.value = true
   try {
     const body = { ...form.value, metricKeys: JSON.stringify(form.value.metricKeys) }
-    if (form.value.id) await request.put('/api/monitor/collect', body)
-    else               await request.post('/api/monitor/collect', body)
+    if (form.value.id) await request.put('/api/monitor/collect/task', body)
+    else               await request.post('/api/monitor/collect/task', body)
     ElMessage.success('保存成功')
     dialog.value = false
     load()
@@ -150,7 +152,7 @@ async function save () {
 async function toggle (row) {
   const body = { ...row, metricKeys: row.metricKeys }
   try {
-    await request.put('/api/monitor/collect', body)
+    await request.put('/api/monitor/collect/task', body)
     ElMessage.success(row.status === 1 ? '已启用' : '已停用')
   } catch (e) { load() }
 }
@@ -172,7 +174,7 @@ async function onDelete (row) {
     )
   } catch { return }
   try {
-    await request.delete(`/api/monitor/collect/${row.id}`)
+    await request.delete(`/api/monitor/collect/task/${row.id}`)
     ElMessage.success('已删除')
     load()
   } catch (e) { /* 拦截器已弹错误 */ }
