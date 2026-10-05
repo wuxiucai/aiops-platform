@@ -80,7 +80,7 @@ import { ElMessage } from 'element-plus'
 import { listTemplates, getTemplate, saveTemplate, saveDefault as apiSaveDefault } from '../../api/dashboard'
 import WidgetRenderer from './WidgetRenderer.vue'
 import { GridLayout, GridItem } from 'vue-grid-layout'
-import 'vue-grid-layout/dist/style.css'
+import './dashboard-grid.css'
 
 const mode = ref('view')
 const loading = ref(false)
