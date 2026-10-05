@@ -64,4 +64,12 @@ public class DashboardController {
         dashboardService.setDefault(id);
         return Result.ok();
     }
+
+    @Operation(summary = "S3: 把模板移入分组 (groupId=null 移出到未归类)")
+    @RequirePerm("monitor:dashboard:update")
+    @PutMapping("/template/{id}/move")
+    public Result<Void> move(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+        dashboardService.move(id, body.get("groupId"));
+        return Result.ok();
+    }
 }

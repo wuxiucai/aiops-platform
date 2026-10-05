@@ -28,6 +28,7 @@ public class DashboardService {
 
     private final DashboardTemplateMapper templateMapper;
     private final DashboardWidgetMapper widgetMapper;
+    private final com.aiops.module.monitor.mapper.DashboardGroupMapper dashboardGroupMapper;
     private final ObjectMapper om = new ObjectMapper();
 
     /** 列出当前用户全部模板（含 widgets）。 */
@@ -143,6 +144,29 @@ public class DashboardService {
                 .eq(DashboardWidget::getTemplateId, id));
     }
 
+    /** S3： 把模板移入某分组；groupId null = 移出到未归类 */
+    @Transactional
+    public void move(Long templateId, Object groupIdRaw) {
+        Long uid = currentUserId();
+        DashboardTemplate t = templateMapper.selectById(templateId);
+        if (t == null) throw new com.aiops.common.BizException("模板不存在");
+        if (!java.util.Objects.equals(t.getUserId(), uid)) {
+            throw new com.aiops.common.BizException("无权修改他人模板");
+        }
+        Long groupId = groupIdRaw == null ? null : ((Number) groupIdRaw).longValue();
+        if (groupId != null) {
+            com.aiops.module.monitor.entity.DashboardGroup g = dashboardGroupMapper.selectById(groupId);
+            if (g == null || !java.util.Objects.equals(g.getUserId(), uid)) {
+                throw new com.aiops.common.BizException("目标分组不存在");
+            }
+        }
+        DashboardTemplate upd = new DashboardTemplate();
+        upd.setId(templateId);
+        upd.setGroupId(groupId);
+        upd.setUpdateTime(java.time.LocalDateTime.now());
+        templateMapper.updateById(upd);
+    }
+
     /* ================== 内部 ================== */
 
     private Long currentUserId() {
@@ -158,6 +182,7 @@ public class DashboardService {
         m.put("userId", t.getUserId());
         m.put("name", t.getName());
         m.put("isDefault", t.getIsDefault());
+        m.put("groupId", t.getGroupId());
         m.put("layoutConfig", parseJson(t.getLayoutConfig()));
         m.put("createTime", t.getCreateTime());
         m.put("updateTime", t.getUpdateTime());

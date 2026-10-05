@@ -480,3 +480,19 @@ CREATE TABLE dashboard_widget (
   deleted TINYINT NOT NULL DEFAULT 0,
   KEY ix_template (template_id)
 );
+
+-- ============== S3 仪表盘分组 ==============
+CREATE TABLE dashboard_group (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL COMMENT '归属用户(user-scoped)',
+  name VARCHAR(64) NOT NULL,
+  parent_id BIGINT NOT NULL DEFAULT 0 COMMENT '父分组id, 0=根',
+  sort INT DEFAULT 0,
+  create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+  update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted TINYINT NOT NULL DEFAULT 0,
+  KEY idx_user_parent (user_id, parent_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='S3 仪表盘分组';
+
+ALTER TABLE dashboard_template ADD COLUMN group_id BIGINT NULL COMMENT 'S3 归属分组';
+ALTER TABLE dashboard_template ADD INDEX idx_user_group (user_id, group_id);

@@ -8,10 +8,12 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
-/** 自定义大盘模板。is_default 同 user 全表只有一个 1。 */
+/**
+ * S3 仪表盘分组（user-scoped 树）
+ */
 @Data
-@TableName("dashboard_template")
-public class DashboardTemplate {
+@TableName("dashboard_group")
+public class DashboardGroup {
 
     @TableId(type = IdType.AUTO)
     private Long id;
@@ -22,16 +24,12 @@ public class DashboardTemplate {
     @TableField("name")
     private String name;
 
-    @TableField("is_default")
-    private Integer isDefault;
+    /** 0 = 根 */
+    @TableField("parent_id")
+    private Long parentId;
 
-    /** 网格布局 [{widgetId,x,y,w,h}] JSON */
-    @TableField("layout_config")
-    private String layoutConfig;
-
-    /** S3 归属分组（user-scoped 树中某节点），NULL = 未归类 */
-    @TableField("group_id")
-    private Long groupId;
+    @TableField("sort")
+    private Integer sort;
 
     @TableField("create_time")
     private LocalDateTime createTime;
