@@ -119,7 +119,7 @@
             />
 
             <div class="chart-wrap" v-if="chartOption">
-              <div class="chart-title">命中按级别聚合（aggs.by_level）</div>
+              <div class="chart-title">命中按服务聚合（aggs.by_service）</div>
               <BaseChart :option="chartOption" height="220px" />
             </div>
 
@@ -263,12 +263,18 @@ async function onExecute() {
   executing.value = true
   try {
     const data = await nl2dslExecute(genResult.value.recordId)
+    // 后端 Nl2DslService.execute 实际返回字段：
+    //   total / elapsedMs / answer / hits (List<row>) / serviceCounts (Map<service,count>)
+    // 前端这里把 serviceCounts Map 转成 chart 期望的 by_level 桶，
+    // 兼容历史可能出现的 records / latencyMs / aggs 字段名（防止后端未来改名）
+    const serviceCounts = data?.serviceCounts || {}
+    const byService = Object.entries(serviceCounts).map(([key, count]) => ({ key, count }))
     execResult.value = {
       total: data?.total ?? data?.hitCount ?? 0,
-      latencyMs: data?.latencyMs ?? null,
+      latencyMs: data?.elapsedMs ?? data?.latencyMs ?? null,
       answer: data?.answer ?? '',
-      records: data?.records || [],
-      aggs: data?.aggs || {}
+      records: data?.hits || data?.records || [],
+      aggs: { by_service: byService }
     }
     ElMessage.success(`命中 ${execResult.value.total} 条`)
   } catch (e) {
@@ -281,9 +287,9 @@ async function onExecute() {
 const chartOption = computed(() => {
   const aggs = execResult.value?.aggs
   if (!aggs) return null
-  const buckets = aggs.by_level || aggs.byLevel || []
+  const buckets = aggs.by_service || aggs.byService || []
   if (!Array.isArray(buckets) || buckets.length === 0) return null
-  const keys = buckets.map(b => b.key ?? b.level ?? '-')
+  const keys = buckets.map(b => b.key ?? b.service ?? '-')
   const vals = buckets.map(b => b.count ?? b.docCount ?? b.doc_count ?? 0)
   return {
     tooltip: { trigger: 'axis' },
