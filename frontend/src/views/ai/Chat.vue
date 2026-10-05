@@ -10,28 +10,57 @@
         <div
           v-for="(s, i) in sessions" :key="i"
           class="side-item"
-          :class="{ active: i === currentSession }"
-          @click="currentSession = i"
+          :class="{ active: i === currentSession, editing: editingIndex === i }"
+          @click="editingIndex === i ? null : (currentSession = i)"
         >
-          <div class="title">{{ s.title || '未命名对话' }}</div>
-          <div class="meta">{{ s.messages.length }} 条 · {{ s.updatedAt }}</div>
+          <!-- 编辑态：内联 input，回车/失焦保存，Esc 取消 -->
+          <div v-if="editingIndex === i" class="rename-row" @click.stop>
+            <el-input
+              ref="renameInputRef"
+              v-model="renameDraft"
+              size="small"
+              maxlength="30"
+              placeholder="对话名称"
+              @keydown.enter.prevent="confirmRename(i)"
+              @keydown.esc.prevent="cancelRename"
+              @blur="confirmRename(i)"
+            />
+          </div>
+          <!-- 展示态 -->
+          <template v-else>
+            <div class="title">{{ s.title || '未命名对话' }}</div>
+            <div class="meta">{{ s.messages.length }} 条 · {{ s.updatedAt }}</div>
+            <el-icon
+              class="rename-btn"
+              title="重命名"
+              @click.stop="startRename(i)"
+            ><EditPen /></el-icon>
+          </template>
         </div>
         <el-empty v-if="sessions.length === 0" description="暂无对话" :image-size="80"/>
       </el-scrollbar>
     </div>
 
     <div class="main">
-      <div class="messages" ref="msgRef" v-loading="thinking">
+      <!-- 不再用 v-loading 整页蒙层：文字已流式出来的部分不该被盖住。
+           改为：AI 气泡内三点动画（未收到首 token）+ 文字末尾闪烁光标（流式中）+ 发送按钮 loading -->
+      <div class="messages" ref="msgRef">
         <div v-for="(m, i) in current.messages" :key="i" :class="['msg', m.role]">
           <div class="avatar" :class="m.role === 'user' ? 'avatar-user' : 'avatar-ai'">
             {{ m.role === 'user' ? '我' : 'AI' }}
           </div>
           <div class="bubble">
             <div class="content" v-if="m.role === 'user'">{{ m.content }}</div>
-            <div class="content md" v-else-if="m.content" v-html="mdRender(m.content)"></div>
-            <div class="content thinking" v-else>思考中...</div>
+            <!-- AI 已有内容：流式渲染 + 末尾光标（方案 A） -->
+            <template v-else-if="m.content">
+              <div class="content md" v-html="mdRender(m.content)"></div>
+              <span v-if="m.done === false" class="stream-cursor">▌</span>
+            </template>
+            <!-- AI 尚未收到首 token：三点弹跳动画（方案 B） -->
+            <div v-else class="content thinking-dots">
+              <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            </div>
             <div v-if="m.fallback" class="fallback-tag">⚠ 系统降级（isLlmFallback）</div>
-            <div v-if="m.done === false" class="stream-cursor">▌</div>
           </div>
         </div>
         <div v-if="current.messages.length === 0" class="empty">
@@ -50,11 +79,12 @@
           type="textarea"
           :rows="2"
           resize="none"
-          placeholder="问点什么（支持中文），Ctrl + Enter 发送..."
+          :disabled="thinking"
+          :placeholder="thinking ? 'AI 正在回答…' : '问点什么（支持中文），Ctrl + Enter 发送...'"
           @keydown.ctrl.enter="send"
         />
-        <el-button type="primary" round class="send-btn" @click="send" :loading="thinking">
-          <el-icon style="margin-right: 4px"><Promotion /></el-icon>发送
+        <el-button type="primary" round class="send-btn" @click="send" :loading="thinking" :disabled="thinking">
+          <el-icon v-if="!thinking" style="margin-right: 4px"><Promotion /></el-icon>{{ thinking ? '回答中' : '发送' }}
         </el-button>
       </div>
     </div>
@@ -63,7 +93,7 @@
 
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
-import { Plus, Promotion } from '@element-plus/icons-vue'
+import { Plus, Promotion, EditPen } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getToken, removeToken, removeUser } from '../../utils/auth'
 
@@ -73,6 +103,35 @@ const msgRef = ref(null)
 const sessions = ref([{ title: '默认对话', messages: [], updatedAt: new Date().toISOString().substring(0, 16) }])
 const currentSession = ref(0)
 const current = computed(() => sessions.value[currentSession.value])
+
+// ============ 会话重命名 ============
+const editingIndex = ref(-1)      // 正在编辑哪个会话（-1 表示无）
+const renameDraft = ref('')        // 编辑中的临时名字
+const renameInputRef = ref(null)   // el-input ref，用于自动聚焦
+
+function startRename (i) {
+  editingIndex.value = i
+  renameDraft.value = sessions.value[i].title || ''
+  nextTick(() => {
+    // ref 在 v-for 里可能是数组，取第一个
+    const el = Array.isArray(renameInputRef.value) ? renameInputRef.value[0] : renameInputRef.value
+    el?.focus?.()
+    el?.select?.()
+  })
+}
+function confirmRename (i) {
+  const v = renameDraft.value.trim()
+  if (v) {
+    sessions.value[i].title = v
+    sessions.value[i].updatedAt = new Date().toISOString().substring(0, 16)
+  }
+  editingIndex.value = -1
+  renameDraft.value = ''
+}
+function cancelRename () {
+  editingIndex.value = -1
+  renameDraft.value = ''
+}
 const examples = [
   '上午 cpu 最高的服务是哪个',
   '现在有多少 unresolved 告警',
@@ -258,11 +317,29 @@ async function send () {
 .sidebar { width: 250px; border-right: 1px solid #eef1f6; display: flex; flex-direction: column; background: #fafbfd; }
 .side-head { padding: 12px; border-bottom: 1px solid #eef1f6; }
 .side-list { flex: 1; overflow: hidden; }
-.side-item { padding: 10px 14px; margin: 4px 8px; border-radius: 8px; cursor: pointer; transition: background .2s; }
+.side-item { padding: 10px 14px; margin: 4px 8px; border-radius: 8px; cursor: pointer; transition: background .2s; position: relative; }
 .side-item:hover { background: #eef1fe; }
 .side-item.active { background: #eef1fe; border-left: 3px solid #4361ee; padding-left: 11px; }
-.side-item .title { font-weight: 500; font-size: 13.5px; color: #2b3245; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side-item.editing { background: #fff; border: 1px solid #bcc4f9; cursor: default; }
+.side-item .title { font-weight: 500; font-size: 13.5px; color: #2b3245; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 24px; }
 .side-item .meta { font-size: 12px; color: #97a1b5; }
+/* 重命名按钮：默认隐藏，悬停浮现 */
+.side-item .rename-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-size: 13px;
+  color: #97a1b5;
+  opacity: 0;
+  transition: opacity .15s, color .15s;
+  cursor: pointer;
+  padding: 2px;
+}
+.side-item:hover .rename-btn { opacity: 1; }
+.side-item .rename-btn:hover { color: #4361ee; }
+/* 编辑态输入框撑满 */
+.rename-row { width: 100%; }
+.rename-row :deep(.el-input__wrapper) { box-shadow: 0 0 0 1px #4361ee inset; }
 
 /* 消息区 */
 .main { flex: 1; display: flex; flex-direction: column; }
@@ -280,9 +357,45 @@ async function send () {
 .content.md:deep(p) { margin: 4px 0; }
 .content.md:deep(pre) { background: #eef1f6; padding: 8px; border-radius: 6px; overflow-x: auto; }
 .content.md:deep(code) { background: #eef1f6; padding: 2px 5px; border-radius: 4px; font-size: 12.5px; }
-.thinking { color: #97a1b5; }
 .fallback-tag { color: #e6a23c; font-size: 12px; margin-top: 8px; padding: 3px 8px; background: #fdf6ec; border-radius: 6px; display: inline-block; }
-.stream-cursor { animation: blink 1s infinite; }
+
+/* ============ 流式状态视觉反馈 ============ */
+/* 方案 A：AI 文字末尾的闪烁光标（流式过程中） */
+.stream-cursor {
+  display: inline-block;
+  margin-left: 2px;
+  color: #4361ee;
+  font-weight: 700;
+  animation: chat-cursor-blink 0.9s steps(2, start) infinite;
+  user-select: none;
+}
+@keyframes chat-cursor-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+/* 方案 B：AI 还没收到首 token 时气泡内的三点弹跳动画 */
+.thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 2px;
+  min-height: 22px;
+}
+.thinking-dots .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #97a1b5;
+  animation: chat-dot-bounce 1.2s infinite ease-in-out;
+}
+.thinking-dots .dot:nth-child(1) { animation-delay: 0s; }
+.thinking-dots .dot:nth-child(2) { animation-delay: 0.18s; }
+.thinking-dots .dot:nth-child(3) { animation-delay: 0.36s; }
+@keyframes chat-dot-bounce {
+  0%, 60%, 100% { transform: translateY(0);    opacity: 0.5; }
+  30%           { transform: translateY(-5px); opacity: 1; }
+}
 
 /* 空状态 */
 .empty { text-align: center; color: #97a1b5; margin-top: 72px; }
