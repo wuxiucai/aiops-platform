@@ -94,7 +94,7 @@ function toggleAgent (id) {
   return request.put(`/api/agent/${id}/toggle`)
 }
 function listTargets () {
-  return request.get('/api/monitor/target/page', { params: { current: 1, size: 100 } })
+  return request.get('/api/monitor/target/page?current=1&size=100')
 }
 function statusOf (targetId) {
   return request.get(`/api/agent/status/${targetId}`)
@@ -126,7 +126,9 @@ async function load () {
 async function loadTargets () {
   try {
     const r = await listTargets()
-    targets.value = r.data?.records || []
+    // axios interceptors 把 res.data 作为响应体格代收 （意味着 r = 全的代理结尾)
+    // 所以直接访问 r.records，不喜 r.data.records
+    targets.value = r?.records || []
     if (createForm.targetId === null && targets.value.length > 0) {
       createForm.targetId = targets.value[0].id
     }
