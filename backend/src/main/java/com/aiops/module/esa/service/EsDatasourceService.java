@@ -98,7 +98,12 @@ public class EsDatasourceService {
             } catch (Exception ignored) {
             }
 
-            result = Map.of("version", version, "clusterName", clusterName,
+            // 同时返回 ok/testResult 字段，前端 Datasource.vue 期望这两个字段
+            // ok=true 表示连通成功；testResult 与 DB 中 es_datasource.test_result 一致
+            result = Map.of(
+                    "ok", true,
+                    "testResult", "OK " + version + " nodes=" + nodeCount + " " + ikInfo,
+                    "version", version, "clusterName", clusterName,
                     "nodeCount", nodeCount, "status", status, "ik", ikInfo);
 
             EsDatasource upd = new EsDatasource();

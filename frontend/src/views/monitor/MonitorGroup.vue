@@ -63,8 +63,9 @@ const form = ref({ id: null, name: '', description: '', sort: 0 })
 async function load () {
   loading.value = true
   try {
+    // axios 拦截器 code===200 时已返回 res.data（这里就是 List<MonitorGroup> 数组本体）
     const r = await request.get('/api/monitor/group/list')
-    rows.value = r.data || []
+    rows.value = r || []
   } finally { loading.value = false }
 }
 

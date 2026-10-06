@@ -339,15 +339,13 @@ async function runReport () {
   if (!detail.value || !detail.value.id) return
   reportLoading.value = true
   try {
+    // axios 拦截器 code===200 时已返回 res.data（ReportResult record），失败会 reject
+    // 后端 ReportResult.markdown / cached 是 record 字段，Jackson 序列化为同名 JSON key
     const r = await incidentReport(detail.value.id)
-    if (r.code === 200) {
-      report.value = r.data?.markdown || ''
-      reportCached.value = r.data?.cached === true
-      ElMessage.success(reportCached.value ? '从缓存读取' : '生成完成')
-    } else {
-      ElMessage.error(r.msg || '报告生成失败')
-    }
-  } finally {
+    report.value = r?.markdown || ''
+    reportCached.value = r?.cached === true
+    ElMessage.success(reportCached.value ? '从缓存读取' : '生成完成')
+  } catch (e) { /* 拦截器已弹错误 */ } finally {
     reportLoading.value = false
   }
 }

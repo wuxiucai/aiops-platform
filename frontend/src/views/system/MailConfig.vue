@@ -131,7 +131,7 @@ async function load () {
   loading.value = true
   try {
     const r = await request.get('/api/system/mail-config/list')
-    rows.value = r.data || []
+    rows.value = r || []
   } finally { loading.value = false }
 }
 
@@ -147,32 +147,32 @@ function openForm (row) {
 async function save () {
   saving.value = true
   try {
-    let r
-    if (form.value.id) r = await request.put('/api/system/mail-config', form.value)
-    else                r = await request.post('/api/system/mail-config', form.value)
-    if (r.code === 200) {
-      ElMessage.success('保存成功')
-      dialog.value = false
-      load()
-    } else {
-      ElMessage.error(r.msg || '保存失败')
-    }
-  } finally { saving.value = false }
+    if (form.value.id) await request.put('/api/system/mail-config', form.value)
+    else               await request.post('/api/system/mail-config', form.value)
+    ElMessage.success('保存成功')
+    dialog.value = false
+    load()
+  } catch (e) { /* 拦截器已弹错误 */ } finally { saving.value = false }
 }
 
 async function setDefault (row) {
-  const ok = await ElMessageBox.confirm(`确定把 ${row.name} 设为默认 SMTP 配置吗？`, '设为默认', { type: 'warning' })
+  const ok = await ElMessageBox.confirm(`确定把 ${row.name} 设为默认 SMTP 配置吗？`, '设为默认', { type: 'warning' }).catch(() => false)
   if (!ok) return
-  const r = await request.put(`/api/system/mail-config/${row.id}/default`)
-  if (r.code === 200) { ElMessage.success('已设为默认'); load() }
-  else ElMessage.error(r.msg || '失败')
+  try {
+    await request.put(`/api/system/mail-config/${row.id}/default`)
+    ElMessage.success('已设为默认')
+    load()
+  } catch (e) { /* 拦截器已弹错误 */ }
 }
 
 async function toggle (row) {
   const body = { ...row }
-  const r = await request.put('/api/system/mail-config', body)
-  if (r.code === 200) ElMessage.success(row.enabled === 1 ? '已启用' : '已停用')
-  else { ElMessage.error(r.msg || '更新失败'); load() }
+  try {
+    await request.put('/api/system/mail-config', body)
+    ElMessage.success(row.enabled === 1 ? '已启用' : '已停用')
+  } catch (e) {
+    row.enabled = row.enabled === 1 ? 0 : 1   // 失败回滚视图
+  }
 }
 
 function testSend (row) {
@@ -186,22 +186,25 @@ async function doTestSend () {
   if (!testForm.to) { ElMessage.warning('请输入接收邮箱'); return }
   testSending.value = true
   try {
+    // 后端 test 返回 {success: bool, ...}
     const r = await request.post(`/api/system/mail-config/${testForm.configId}/test`, { to: testForm.to })
-    if (r.code === 200 && r.data?.success) {
+    if (r?.success) {
       ElMessage.success(`测试邮件已发送至 ${testForm.to}，请查收`)
       testVisible.value = false
     } else {
-      ElMessage.error(`发送失败：${r.msg || '可能 SMTP 不通或配置错误'}`)
+      ElMessage.error(`发送失败：${r?.error || '可能 SMTP 不通或配置错误'}`)
     }
-  } finally { testSending.value = false }
+  } catch (e) { /* 拦截器已弹错误 */ } finally { testSending.value = false }
 }
 
 async function del (row) {
-  const ok = await ElMessageBox.confirm(`确认删除 ${row.name}？删除后该渠道无法发送邮件。`, '删除', { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' })
+  const ok = await ElMessageBox.confirm(`确认删除 ${row.name}？删除后该渠道无法发送邮件。`, '删除', { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' }).catch(() => false)
   if (!ok) return
-  const r = await request.delete(`/api/system/mail-config/${row.id}`)
-  if (r.code === 200) { ElMessage.success('已删除'); load() }
-  else ElMessage.error(r.msg || '删除失败')
+  try {
+    await request.delete(`/api/system/mail-config/${row.id}`)
+    ElMessage.success('已删除')
+    load()
+  } catch (e) { /* 拦截器已弹错误 */ }
 }
 
 onMounted(load)

@@ -130,7 +130,7 @@ async function load () {
   loading.value = true
   try {
     const r = await listPrompt()
-    rows.value = r.data || []
+    rows.value = r || []
   } finally { loading.value = false }
 }
 
@@ -159,15 +159,12 @@ async function save () {
   }
   saving.value = true
   try {
+    // 拦截器已解包到 data 层
     const r = await savePrompt(editRow.value)
-    if (r.code === 200) {
-      ElMessage.success(`保存成功，version ${r.data.newVersion}`)
-      editVisible.value = false
-      load()
-    } else {
-      ElMessage.error(r.msg || '保存失败')
-    }
-  } finally { saving.value = false }
+    ElMessage.success(`保存成功${r?.newVersion ? '，version ' + r.newVersion : ''}`)
+    editVisible.value = false
+    load()
+  } catch (e) { /* 拦截器已弹错误 */ } finally { saving.value = false }
 }
 
 onMounted(load)

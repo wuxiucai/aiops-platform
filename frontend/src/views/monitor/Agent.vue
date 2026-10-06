@@ -106,14 +106,15 @@ function createAgentApi (body) {
 async function load () {
   loading.value = true
   try {
+    // 拦截器已解包到 data 层：r 就是 agent 数组
     const r = await listAgents()
-    const agents = r.data || []
+    const agents = r || []
     // 并发查 status
     const enriched = await Promise.all(agents.map(async (a) => {
       let online = false
       try {
         const s = await statusOf(a.targetId)
-        online = s.data?.online === true
+        online = s?.online === true
       } catch { /* offline */ }
       return { ...a, online }
     }))
