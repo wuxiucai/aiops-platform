@@ -3,12 +3,17 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.aiops.module.monitor.mapper.MetricDataMapper">
 
-    <!-- 时序查询：DATE_FORMAT 分桶 + 聚合函数。aggregation 已在 Service 层白名单校验 -->
+    <!-- 时序查询：rawFormat=false 用 DATE_FORMAT；rawFormat=true 直接用 SQL 表达式（CONCAT/FLOOR 复合桶）
+         注意 expression 用 ${} 而不是 #{} —— SQL 片段不能 prepared-statement 参数化，
+         且 expression 已在上层用 switch 白名单约束，不可能注入 -->
     <select id="querySeries" resultType="map">
         SELECT
             target_id            AS targetId,
             metric_key           AS metricKey,
-            DATE_FORMAT(collect_time, #{format}) AS bucketTime,
+            <choose>
+                <when test="rawFormat">${expression}</when>
+                <otherwise>DATE_FORMAT(collect_time, #{expression})</otherwise>
+            </choose> AS bucketTime,
             ROUND(AVG(metric_value), 2) AS value
         FROM metric_data
         WHERE collect_time BETWEEN #{startTime} AND #{endTime}
