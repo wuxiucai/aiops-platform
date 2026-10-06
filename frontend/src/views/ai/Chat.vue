@@ -6,12 +6,12 @@
           <el-icon><Plus /></el-icon> 新对话
         </el-button>
       </div>
-      <el-scrollbar class="side-list">
+      <el-scrollbar class="side-list" v-loading="loadingSessions">
         <div
-          v-for="(s, i) in sessions" :key="i"
+          v-for="(s, i) in sessions" :key="s.id ?? `local-${i}`"
           class="side-item"
           :class="{ active: i === currentSession, editing: editingIndex === i }"
-          @click="editingIndex === i ? null : (currentSession = i)"
+          @click="editingIndex === i ? null : onSwitchSession(i)"
         >
           <!-- 编辑态：内联 input，回车/失焦保存，Esc 取消 -->
           <div v-if="editingIndex === i" class="rename-row" @click.stop>
@@ -35,6 +35,11 @@
               title="重命名"
               @click.stop="startRename(i)"
             ><EditPen /></el-icon>
+            <el-icon
+              class="delete-btn"
+              title="删除会话"
+              @click.stop="onDeleteSession(i)"
+            ><Delete /></el-icon>
           </template>
         </div>
         <el-empty v-if="sessions.length === 0" description="暂无对话" :image-size="80"/>
@@ -93,37 +98,96 @@
 
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
-import { Plus, Promotion, EditPen } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { Plus, Promotion, EditPen, Delete } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import request from '../../utils/request'
 import { getToken, removeToken, removeUser } from '../../utils/auth'
 
 const input = ref('')
 const thinking = ref(false)
 const msgRef = ref(null)
-const sessions = ref([{ title: '默认对话', messages: [], updatedAt: new Date().toISOString().substring(0, 16) }])
+// 会话结构：{ id, title, messages: [{role, content, done, fallback}], updatedAt }
+// id 来自后端 chat_session；新建未落库的会话 id=null
+const sessions = ref([])
 const currentSession = ref(0)
 const current = computed(() => sessions.value[currentSession.value])
+const loadingSessions = ref(false)
+
+// ============ 历史会话：从后端拉取 ============
+async function loadSessions () {
+  loadingSessions.value = true
+  try {
+    const r = await request.get('/api/ai/chat/sessions')
+    const list = r || []
+    // 标记每个会话的 messages 为空数组（按需再拉）
+    sessions.value = list.map(s => ({
+      id: s.id,
+      title: s.title || '新对话',
+      messages: [],
+      updatedAt: (s.updateTime || '').substring(0, 16),
+      messagesLoaded: false
+    }))
+    if (sessions.value.length === 0) {
+      // 本地占位（首次对话时再落库）
+      sessions.value.push({ id: null, title: '新对话', messages: [], updatedAt: '', messagesLoaded: true })
+    }
+    currentSession.value = 0
+    // 默认选中第一个并加载消息
+    if (sessions.value[0]?.id) {
+      await loadMessages(sessions.value[0])
+    }
+  } catch (e) { /* 拦截器已弹错误 */ } finally {
+    loadingSessions.value = false
+  }
+}
+
+async function loadMessages (session) {
+  if (!session.id || session.messagesLoaded) return
+  try {
+    const r = await request.get(`/api/ai/chat/sessions/${session.id}/messages`)
+    session.messages = (r || []).map(m => ({
+      role: m.role, content: m.content, done: true, fallback: false
+    }))
+    session.messagesLoaded = true
+  } catch (e) { /* 拦截器已弹错误 */ }
+}
+
+async function ensureSessionPersisted (session) {
+  if (session.id) return session.id
+  try {
+    const r = await request.post('/api/ai/chat/sessions', { title: session.title || '新对话' })
+    session.id = r?.id
+    return session.id
+  } catch (e) {
+    return null
+  }
+}
 
 // ============ 会话重命名 ============
-const editingIndex = ref(-1)      // 正在编辑哪个会话（-1 表示无）
-const renameDraft = ref('')        // 编辑中的临时名字
-const renameInputRef = ref(null)   // el-input ref，用于自动聚焦
+const editingIndex = ref(-1)
+const renameDraft = ref('')
+const renameInputRef = ref(null)
 
 function startRename (i) {
   editingIndex.value = i
   renameDraft.value = sessions.value[i].title || ''
   nextTick(() => {
-    // ref 在 v-for 里可能是数组，取第一个
     const el = Array.isArray(renameInputRef.value) ? renameInputRef.value[0] : renameInputRef.value
     el?.focus?.()
     el?.select?.()
   })
 }
-function confirmRename (i) {
+async function confirmRename (i) {
   const v = renameDraft.value.trim()
   if (v) {
     sessions.value[i].title = v
     sessions.value[i].updatedAt = new Date().toISOString().substring(0, 16)
+    // 已落库的会话同步到后端
+    if (sessions.value[i].id) {
+      try {
+        await request.put(`/api/ai/chat/sessions/${sessions.value[i].id}`, { title: v })
+      } catch (e) { /* 拦截器已弹错误 */ }
+    }
   }
   editingIndex.value = -1
   renameDraft.value = ''
@@ -132,14 +196,56 @@ function cancelRename () {
   editingIndex.value = -1
   renameDraft.value = ''
 }
+
+async function onDeleteSession (i) {
+  const s = sessions.value[i]
+  try {
+    await ElMessageBox.confirm(`确定删除会话 "${s.title}"？此操作会删除全部消息。`, '删除会话',
+      { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' })
+  } catch { return }
+  if (s.id) {
+    try {
+      await request.delete(`/api/ai/chat/sessions/${s.id}`)
+    } catch (e) { /* 拦截器已弹错误 */ return }
+  }
+  sessions.value.splice(i, 1)
+  if (sessions.value.length === 0) {
+    sessions.value.push({ id: null, title: '新对话', messages: [], updatedAt: '', messagesLoaded: true })
+    currentSession.value = 0
+  } else {
+    currentSession.value = Math.max(0, Math.min(i, sessions.value.length - 1))
+  }
+}
+
+// 切换会话：拉到该会话就 loadMessages 一次（按需）
+function onSwitchSession (i) {
+  currentSession.value = i
+  const s = sessions.value[i]
+  if (s) loadMessages(s)
+  scrollBottom()
+}
+
 const examples = [
   '上午 cpu 最高的服务是哪个',
   '现在有多少 unresolved 告警',
   '近 1 小时 order-service 的错误日志有什么特点'
 ]
 
-function newChat () {
-  sessions.value.push({ title: '对话 ' + (sessions.value.length + 1), messages: [], updatedAt: new Date().toISOString().substring(0, 16) })
+async function newChat () {
+  // 落库：直接在后端创建会话，避免本地占位
+  try {
+    const r = await request.post('/api/ai/chat/sessions', { title: `对话 ${sessions.value.length + 1}` })
+    sessions.value.push({
+      id: r?.id,
+      title: r?.title || `对话 ${sessions.value.length + 1}`,
+      messages: [],
+      updatedAt: (r?.updateTime || '').substring(0, 16),
+      messagesLoaded: true
+    })
+  } catch (e) {
+    // 后端挂了：仍在前端临时造一个，等 SSE 时再尝试落库
+    sessions.value.push({ id: null, title: `对话 ${sessions.value.length + 1}`, messages: [], updatedAt: '', messagesLoaded: true })
+  }
   currentSession.value = sessions.value.length - 1
 }
 
@@ -289,13 +395,36 @@ async function send () {
     clearTimeout(overallTimeout)
     if (!aiMsg.value.done) aiMsg.value.done = true
     current.value.updatedAt = new Date().toISOString().substring(0, 16)
+    // 落库：把这轮的 user + assistant 消息批量追加到后端
+    await persistTurn(q, aiMsg.value.content || '')
   } catch (e) {
     aiMsg.value.content += '\n\n⚠ 连接错误: ' + (e?.message || '未知')
     aiMsg.value.done = true
+    // 出错也尝试落库（保留错误信息便于离线复盘）
+    try { await persistTurn(q, aiMsg.value.content || '') } catch { /* ignore */ }
   } finally {
     thinking.value = false
   }
 }
+
+/**
+ * 把这一轮 user 提问 + AI 回答持久化到后端 chat_message。
+ * 懒创建：如果当前会话还没 id，先创建会话。
+ */
+async function persistTurn (userQuestion, assistantReply) {
+  const session = current.value
+  if (!session) return
+  const sid = await ensureSessionPersisted(session)
+  if (!sid) return
+  try {
+    await request.post(`/api/ai/chat/sessions/${sid}/messages/batch`, [
+      { role: 'user', content: userQuestion || '' },
+      { role: 'assistant', content: assistantReply || '' }
+    ])
+  } catch (e) { /* 拦截器已弹错误 */ }
+}
+
+onMounted(loadSessions)
 </script>
 
 <style scoped>
@@ -321,13 +450,12 @@ async function send () {
 .side-item:hover { background: #eef1fe; }
 .side-item.active { background: #eef1fe; border-left: 3px solid #4361ee; padding-left: 11px; }
 .side-item.editing { background: #fff; border: 1px solid #bcc4f9; cursor: default; }
-.side-item .title { font-weight: 500; font-size: 13.5px; color: #2b3245; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 24px; }
+.side-item .title { font-weight: 500; font-size: 13.5px; color: #2b3245; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 48px; }
 .side-item .meta { font-size: 12px; color: #97a1b5; }
-/* 重命名按钮：默认隐藏，悬停浮现 */
-.side-item .rename-btn {
+/* 重命名 + 删除按钮：默认隐藏，悬停浮现 */
+.side-item .rename-btn,
+.side-item .delete-btn {
   position: absolute;
-  top: 10px;
-  right: 10px;
   font-size: 13px;
   color: #97a1b5;
   opacity: 0;
@@ -335,8 +463,12 @@ async function send () {
   cursor: pointer;
   padding: 2px;
 }
-.side-item:hover .rename-btn { opacity: 1; }
+.side-item .rename-btn { top: 10px; right: 28px; }
+.side-item .delete-btn { top: 10px; right: 10px; }
+.side-item:hover .rename-btn,
+.side-item:hover .delete-btn { opacity: 1; }
 .side-item .rename-btn:hover { color: #4361ee; }
+.side-item .delete-btn:hover { color: #f56c6c; }
 /* 编辑态输入框撑满 */
 .rename-row { width: 100%; }
 .rename-row :deep(.el-input__wrapper) { box-shadow: 0 0 0 1px #4361ee inset; }
