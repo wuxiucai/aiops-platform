@@ -234,14 +234,10 @@ public class AgentController {
         MonitorAgent a = monitorAgentMapper.selectById(id);
         if (a == null || a.getDeleted() == 1) throw new BizException("agent 不存在");
 
-        java.io.File f = new java.io.File(agentJarPath);
-        if (!f.exists()) {
-            // 兜底：从 backend 启动目录向上找
-            f = new java.io.File(System.getProperty("user.dir")).getParentFile();
-            if (f != null) f = new java.io.File(f, "agent/target/aiops-agent-1.0.0.jar");
-        }
-        if (f == null || !f.exists()) {
-            throw new BizException("agent jar 未就绪：" + agentJarPath + "；请先在 agent/ 模块执行 mvn package");
+        java.io.File f = resolveAgentJar();
+        if (f == null) {
+            throw new BizException("agent jar 未就绪：找不到 aiops-agent jar"
+                    + "（尝试过 " + agentJarPath + " + 兜底路径）。请先在 agent/ 模块执行 mvn package");
         }
         ByteArrayResource res = new ByteArrayResource(java.nio.file.Files.readAllBytes(f.toPath()));
         return ResponseEntity.ok()
@@ -249,6 +245,38 @@ public class AgentController {
                 .contentLength(res.contentLength())
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"aiops-agent.jar\"")
                 .body(res);
+    }
+
+    /**
+     * 解析 agent jar 的真实路径。候选位置按优先级：
+     *   1. ${aiops.agent.jar-path}（默认 ../agent/target/aiops-agent-1.0.0.jar，相对当前 cwd）
+     *   2. ${user.dir}/agent/target/aiops-agent-1.0.0.jar        （cwd 已是项目根）
+     *   3. ${user.dir}/../agent/target/aiops-agent-1.0.0.jar     （cwd 是 backend/，往上一层）
+     *   4. classpath同级 aiops-agent-1.0.0.jar                   （部署到生产时 jar 放同目录）
+     * 返回 null 表示全部失败。
+     */
+    private java.io.File resolveAgentJar() {
+        java.util.List<java.io.File> candidates = new java.util.ArrayList<>();
+        candidates.add(new java.io.File(agentJarPath));
+        String userDir = System.getProperty("user.dir");
+        candidates.add(new java.io.File(userDir, "agent/target/aiops-agent-1.0.0.jar"));
+        java.io.File dirFile = new java.io.File(userDir);
+        if (dirFile.getParentFile() != null) {
+            candidates.add(new java.io.File(dirFile.getParentFile(), "agent/target/aiops-agent-1.0.0.jar"));
+        }
+        try {
+            String codeSourcePath = AgentController.class.getProtectionDomain()
+                    .getCodeSource().getLocation().toURI().getPath();
+            candidates.add(new java.io.File(codeSourcePath).getParentFile() != null
+                    ? new java.io.File(new java.io.File(codeSourcePath).getParentFile(), "aiops-agent-1.0.0.jar")
+                    : null);
+        } catch (Exception ignored) {}
+        for (java.io.File f : candidates) {
+            if (f != null && f.exists() && f.isFile()) {
+                return f;
+            }
+        }
+        return null;
     }
 
     /* ========================= 5. metric 上报 ========================= */
