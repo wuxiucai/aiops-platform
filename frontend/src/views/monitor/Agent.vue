@@ -43,17 +43,54 @@
     </el-card>
 
     <!-- 新建 dialog -->
-    <el-dialog v-model="createVisible" title="新建 Agent" width="500px">
+    <el-dialog v-model="createVisible" title="新建 Agent" width="540px">
       <el-form :model="createForm" label-width="100px">
         <el-form-item label="目标主机" required>
-          <el-select v-model="createForm.targetId" style="width: 100%">
+          <el-select v-model="createForm.targetId" style="width: 100%" @change="onTargetChange">
             <el-option v-for="t in targets" :key="t.id" :value="t.id" :label="`${t.name} (${t.ip})`"/>
+            <el-option :value="NEW_TARGET_SENTINEL" label="+ 新建主机（如果尚未注册）">
+              <span style="color:#4361ee; font-weight:500">+ 新建主机（如果尚未注册）</span>
+            </el-option>
           </el-select>
         </el-form-item>
+
+        <!-- 选 "+ 新建主机" 时展开的机器信息区 -->
+        <template v-if="createForm.targetId === NEW_TARGET_SENTINEL">
+          <el-divider content-position="left">新主机信息</el-divider>
+          <el-form-item label="名称" required>
+            <el-input v-model="newTargetForm.name" placeholder="如 prod-web-05 / 客户数据库-北京-2"/>
+          </el-form-item>
+          <el-form-item label="IP / 主机" required>
+            <el-input v-model="newTargetForm.ip" placeholder="如 10.8.1.99 或 hostname"/>
+          </el-form-item>
+          <el-form-item label="类型">
+            <el-select v-model="newTargetForm.targetType" style="width: 100%">
+              <el-option value="host" label="主机 host"/>
+              <el-option value="service" label="应用 service"/>
+            </el-select>
+          </el-form-item>
+          <el-form-item label="OS">
+            <el-input v-model="newTargetForm.os" placeholder="如 Linux / Windows 11 (可选)"/>
+          </el-form-item>
+          <el-form-item label="日志服务名">
+            <el-input v-model="newTargetForm.logServiceName" placeholder="如 order-service (可选)"/>
+          </el-form-item>
+          <el-form-item label="所属分组">
+            <el-select v-model="newTargetForm.groupId" clearable placeholder="不分组" style="width: 100%">
+              <el-option :value="null" label="不分组"/>
+              <el-option v-for="g in groups" :key="g.id" :value="g.id" :label="g.name"/>
+            </el-select>
+          </el-form-item>
+          <el-form-item label="描述">
+            <el-input v-model="newTargetForm.description" type="textarea" :rows="2" placeholder="选填"/>
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="createVisible=false">取消</el-button>
-        <el-button type="primary" @click="create" :loading="creating">创建</el-button>
+        <el-button type="primary" @click="create" :loading="creating">
+          {{ createForm.targetId === NEW_TARGET_SENTINEL ? '注册主机并创建 Agent' : '创建 Agent' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -79,13 +116,34 @@ const hasPerm = (code) => userStore.hasPerm(code)
 
 const rows = ref([])
 const targets = ref([])
+const groups = ref([])
 const loading = ref(false)
 const creating = ref(false)
 const createVisible = ref(false)
 const installCmdVisible = ref(false)
 const installCmd = ref('')
 
+// 新建主机特殊 sentinel：选它时展开 name/ip/os 等新主机字段
+const NEW_TARGET_SENTINEL = -1
+
 const createForm = reactive({ targetId: null })
+const newTargetForm = reactive({
+  name: '', ip: '', targetType: 'host', os: '', logServiceName: '',
+  groupId: null, description: ''
+})
+
+function resetNewTargetForm () {
+  Object.assign(newTargetForm, {
+    name: '', ip: '', targetType: 'host', os: '', logServiceName: '',
+    groupId: null, description: ''
+  })
+}
+
+function onTargetChange (v) {
+  if (v === NEW_TARGET_SENTINEL) {
+    resetNewTargetForm()
+  }
+}
 
 function listAgents () {
   return request.get('/api/agent/list')
@@ -101,6 +159,12 @@ function statusOf (targetId) {
 }
 function createAgentApi (body) {
   return request.post('/api/agent/create', body)
+}
+function createWithTargetApi (body) {
+  return request.post('/api/agent/create-with-target', body)
+}
+function listGroups () {
+  return request.get('/api/monitor/group/list')
 }
 
 async function load () {
@@ -139,20 +203,49 @@ async function loadTargets () {
 }
 
 async function openCreateDialog () {
-  // 弹窗打开前拉一遍 target，避免 targets 在初始 onMounted 未完成时为空
-  await loadTargets()
-  if (targets.value.length > 0) {
+  // 弹窗打开前拉一遍 target + 分组，避免 targets 在初始 onMounted 未完成时为空
+  await Promise.all([loadTargets(), loadGroupsAction()])
+  if (targets.value.length > 0 && createForm.targetId !== NEW_TARGET_SENTINEL) {
     createForm.targetId = targets.value[0].id
   }
+  resetNewTargetForm()
   createVisible.value = true
 }
 
+async function loadGroupsAction () {
+  try {
+    const r = await listGroups()
+    groups.value = r || []
+  } catch (e) { /* ignore */ }
+}
+
 async function create () {
-  if (!createForm.targetId) return
   creating.value = true
   try {
-    // 拦截器在 code=200 时直接 resolve(data)；非 200 已弹错，不再判 r.code
-    const data = await createAgentApi({ targetId: createForm.targetId })
+    let data
+    if (createForm.targetId === NEW_TARGET_SENTINEL) {
+      // 一站式：先创 target 再创 agent（事务）
+      if (!newTargetForm.name || !newTargetForm.ip) {
+        ElMessage.warning('新主机时名称与 IP 必填')
+        creating.value = false
+        return
+      }
+      data = await createWithTargetApi({
+        name: newTargetForm.name,
+        ip: newTargetForm.ip,
+        targetType: newTargetForm.targetType,
+        os: newTargetForm.os,
+        logServiceName: newTargetForm.logServiceName,
+        groupId: newTargetForm.groupId,
+        description: newTargetForm.description
+      })
+    } else {
+      if (!createForm.targetId) {
+        creating.value = false
+        return
+      }
+      data = await createAgentApi({ targetId: createForm.targetId })
+    }
     installCmd.value = data?.installCommand || ''
     installCmdVisible.value = true
     createVisible.value = false

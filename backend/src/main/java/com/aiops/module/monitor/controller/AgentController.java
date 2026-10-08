@@ -108,7 +108,63 @@ public class AgentController {
         if (target == null) {
             throw new BizException("target 不存在：" + targetId);
         }
-        // 防重：同 target 只允许一个 alive agent
+        return Result.ok(doCreateAgent(target));
+    }
+
+    /**
+     * 新建监控对象 + 同时为其创建 Agent（一站式接入还没在系统里的机器）。
+     * 事务性：target / agent 任一 insert 失败整体回滚，不会出现"建了一半"的脏数据。
+     *
+     * 前端 Agent.vue 新建对话框在「目标主机」下拉选 "+ 新建主机" 时调用本接口。
+     *  body 字段：
+     *    name           必填
+     *    ip             必填
+     *    targetType     host / service，默认 host
+     *    os             可选
+     *    logServiceName 可选
+     *    description    可选
+     *    groupId        可选
+     */
+    @Operation(summary = "新建 target + agent（一次性，事务）")
+    @com.aiops.security.RequirePerm("monitor:target:add")
+    @PostMapping("/create-with-target")
+    @org.springframework.transaction.annotation.Transactional
+    public Result<Map<String, Object>> createWithTarget(@RequestBody Map<String, Object> body) {
+        String name = (String) body.get("name");
+        String ip = (String) body.get("ip");
+        if (name == null || name.isBlank()) throw new BizException("name 必填");
+        if (ip == null || ip.isBlank()) throw new BizException("ip 必填");
+
+        // 防重：同名 target 已存在且未删除则报错
+        Long dup = monitorTargetMapper.selectCount(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<MonitorTarget>()
+                        .eq(MonitorTarget::getName, name));
+        if (dup != null && dup > 0) {
+            throw new BizException("监控对象名 '" + name + "' 已存在，直接在下拉里选它，不要重复新建");
+        }
+
+        MonitorTarget t = new MonitorTarget();
+        t.setName(name.trim());
+        t.setIp(ip.trim());
+        t.setTargetType((String) body.getOrDefault("targetType", "host"));
+        t.setOs((String) body.get("os"));
+        t.setLogServiceName((String) body.get("logServiceName"));
+        t.setDescription((String) body.get("description"));
+        t.setStatus(1);
+        Object gid = body.get("groupId");
+        if (gid instanceof Number n) t.setGroupId(n.longValue());
+        monitorTargetMapper.insert(t);
+        log.info("[Agent] create-with-target: created target id={} name={}", t.getId(), t.getName());
+
+        Map<String, Object> out = doCreateAgent(t);
+        out.put("targetId", t.getId());
+        out.put("targetName", t.getName());
+        return Result.ok(out);
+    }
+
+    /** 共用的 agent 创建逻辑：防重 → insert → 生成 installCommand → 返回元信息 */
+    private Map<String, Object> doCreateAgent(MonitorTarget target) {
+        Long targetId = target.getId();
         Long existing = monitorAgentMapper.selectCount(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<MonitorAgent>()
                 .eq(MonitorAgent::getTargetId, targetId)
                 .eq(MonitorAgent::getDeleted, 0));
@@ -136,7 +192,7 @@ public class AgentController {
         out.put("installCommand", installCmd);
         out.put("downloadUrl", platformBaseUrl + "/api/agent/download/" + a.getId());
         log.info("[Agent] 新建 id={} target={} name={}", a.getId(), targetId, target.getName());
-        return Result.ok(out);
+        return out;
     }
 
     /* ========================= 3. 启停 ========================= */
