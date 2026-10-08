@@ -14,7 +14,8 @@ const router = createRouter({
       path: '/',
       name: 'Main',
       component: () => import('../layout/MainLayout.vue'),
-      redirect: '/monitor/dashboard',
+      // 不能写死 redirect: '/monitor/dashboard'——首次导航到 / 时动态路由还没注册，
+      // 会触发 R0004 No match found。用 beforeEach 里的"未注册 path fallback"逻辑兜底。
       children: []
     }
   ]
@@ -24,6 +25,18 @@ const router = createRouter({
 export const viewModules = import.meta.glob('../views/**/*.vue')
 
 let dynamicRegistered = false
+
+/** 从菜单树中挑出第一个"已注册 + 已授权"的 path，作为 / 默认跳转目标 */
+function firstAvailablePath (menus) {
+  for (const m of menus) {
+    for (const c of (m.children || [])) {
+      if (!c.path || !c.component) continue
+      const p = c.path.startsWith('/') ? c.path : (m.path + c.path)
+      return p
+    }
+  }
+  return null
+}
 
 /** 根据后端菜单树递归注册动态路由（挂在 MainLayout 下，保持布局） */
 export function registerDynamicRoutes(menus) {
@@ -75,12 +88,18 @@ router.beforeEach(async to => {
     const firstTime = !dynamicRegistered
     // 幂等：hasRoute 会跳过已注册的路由；每次都跑一遍让新增菜单立即生效
     registerDynamicRoutes(userStore.menus)
+    // 兜底：目标 path 仍未注册就重定向到第一个可用菜单。常见两种触发：
+    //   1. 直接访问 /          → 没 redirect 字段留下来，默认渲染空 Main
+    //   2. 访问历史/失效路径    → 注册集合里没有
+    // 不能用 router.getRoutes() 判断，因为 path 形参比对的不是注册顺序；这里直接看 name
+    const target = to.path === '/' ? firstAvailablePath(userStore.menus) : null
+    if (target) {
+      return { path: target, replace: true }
+    }
     if (firstTime) {
-      // 首次注册：重新解析当前目标，避免匹配不到刚注册的路由
       return { path: to.fullPath, replace: true }
     }
-    // 非首次：若目标 path 仍未注册（用户访问了新增菜单但还没匹配的 route），重新解析一次
-    if (!router.getRoutes().some(r => r.path === to.path)) {
+    if (!router.hasRoute(to.path)) {
       return { path: to.fullPath, replace: true }
     }
   }

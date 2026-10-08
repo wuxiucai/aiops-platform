@@ -17,7 +17,7 @@
         text-color="#a5b1c9"
         active-text-color="#ffffff"
       >
-        <el-sub-menu v-for="menu in userStore.menus" :key="menu.id" :index="menu.path">
+        <el-sub-menu v-for="menu in userStore.menus.filter(m => m && m.path)" :key="menu.id" :index="menu.path">
           <template #title>
             <el-icon><component :is="menu.icon || 'Menu'" /></el-icon>
             <span>{{ menu.name }}</span>
