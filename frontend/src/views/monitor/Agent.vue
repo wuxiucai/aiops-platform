@@ -269,7 +269,17 @@ async function refresh () {
 }
 
 function downloadJar (row) {
-  window.open(`/api/agent/download/${row.id}`, '_blank')
+  // 加 cache-buster 时间戳：之前浏览器把一次失败响应（1001 JSON 错误页）
+  // 记成对该 URL 的"已浏览内容"，后续即使后端恢复也用缓存。
+  // query 参数变化 → 视为新 URL → 一定 hit 网络。
+  const url = `/api/agent/download/${row.id}?_t=${Date.now()}`
+  // 用 <a download> 而不是 window.open，浏览器行为更稳定
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'aiops-agent.jar'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 
 function copyInstallCmd (row) {

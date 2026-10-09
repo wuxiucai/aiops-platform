@@ -110,7 +110,9 @@ const msgRef = ref(null)
 // id 来自后端 chat_session；新建未落库的会话 id=null
 const sessions = ref([])
 const currentSession = ref(0)
-const current = computed(() => sessions.value[currentSession.value])
+// 兜底空会话，每次返回新对象避免共享字面量被 push 污染
+function makeEmptySession () { return { id: null, title: '', messages: [], updatedAt: '', messagesLoaded: true } }
+const current = computed(() => sessions.value[currentSession.value] || makeEmptySession())
 const loadingSessions = ref(false)
 
 // ============ 历史会话：从后端拉取 ============
@@ -268,6 +270,12 @@ function ask (q) {
 async function send () {
   const q = input.value.trim()
   if (!q || thinking.value) return
+  // 兜底：极端情况下 sessions=[] / currentSession 越界 → 必须先创建一个真实的会话再 push，
+  // 否则消息会写到一个 throwaway 的 empty session 上被丢。
+  if (!sessions.value[currentSession.value]) {
+    sessions.value.push({ id: null, title: '新对话', messages: [], updatedAt: '', messagesLoaded: true })
+    currentSession.value = sessions.value.length - 1
+  }
   thinking.value = true
   current.value.messages.push({ role: 'user', content: q })
   const aiMsg = ref({ role: 'assistant', content: '', done: false, fallback: false })

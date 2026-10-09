@@ -244,6 +244,10 @@ public class AgentController {
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .contentLength(res.contentLength())
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"aiops-agent.jar\"")
+                // 显式禁止缓存：失败响应（1001）不应被浏览器记住，避免恢复后还看到旧错误页
+                .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate, max-age=0")
+                .header(HttpHeaders.PRAGMA, "no-cache")
+                .header(HttpHeaders.EXPIRES, "0")
                 .body(res);
     }
 
