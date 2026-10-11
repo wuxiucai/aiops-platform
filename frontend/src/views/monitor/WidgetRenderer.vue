@@ -1,11 +1,11 @@
 <template>
   <div class="widget-renderer">
-    <StatCard     v-if="w.widgetType==='stat_card'"    :config="w.config"/>
-    <LineChart    v-else-if="w.widgetType==='line_chart'"   :config="w.config"/>
-    <TopAlert     v-else-if="w.widgetType==='top_alert'"    :config="w.config"/>
-    <TopTemplate  v-else-if="w.widgetType==='top_template'" :config="w.config"/>
-    <IncidentList v-else-if="w.widgetType==='incident_list'" :config="w.config"/>
-    <MetricCompare v-else-if="w.widgetType==='metric_compare'" :config="w.config"/>
+    <StatCard     v-if="w?.widgetType==='stat_card'"     :config="w.config"/>
+    <LineChart    v-else-if="w?.widgetType==='line_chart'"    :config="w.config"/>
+    <TopAlert     v-else-if="w?.widgetType==='top_alert'"     :config="w.config"/>
+    <TopTemplate  v-else-if="w?.widgetType==='top_template'" :config="w.config"/>
+    <IncidentList v-else-if="w?.widgetType==='incident_list'" :config="w.config"/>
+    <MetricCompare v-else-if="w?.widgetType==='metric_compare'" :config="w.config"/>
     <el-empty v-else description="未知类型" :image-size="40"/>
   </div>
 </template>
@@ -18,7 +18,7 @@ import TopTemplate from './widgets/TopTemplate.vue'
 import IncidentList from './widgets/IncidentList.vue'
 import MetricCompare from './widgets/MetricCompare.vue'
 
-defineProps({ w: { type: Object, required: true } })
+const props = defineProps({ w: { type: Object, required: false, default: null } })
 </script>
 
 <style scoped>

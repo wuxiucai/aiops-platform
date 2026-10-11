@@ -97,10 +97,11 @@ router.beforeEach(async to => {
       return { path: target, replace: true }
     }
     if (firstTime) {
-      return { path: to.fullPath, replace: true }
+      // 保留 query 参数，否则 replace 会丢 ?group=N 等
+      return { path: to.fullPath, query: to.query, replace: true }
     }
     if (!router.hasRoute(to.path)) {
-      return { path: to.fullPath, replace: true }
+      return { path: to.fullPath, query: to.query, replace: true }
     }
   }
   return true

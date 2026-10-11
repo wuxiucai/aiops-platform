@@ -21,12 +21,13 @@ async function fetchData () {
     startTime: formatTime(new Date(Date.now() - hours * 3600_000)),
     endTime: formatTime(new Date()),
     aggregation: 'avg',
-    step: hours >= 24 ? '1h' : '5m'
+    // 时间粒度：1h 窗口按 1 分钟聚合（~60 点，肉眼可见秒级精度）；24h+ 仍按 1h
+    step: hours >= 24 ? '1h' : (hours >= 6 ? '5m' : '1m')
   }
   const r = await request.post('/api/monitor/metric/query', body)
-  if (r.code !== 200) return
-  // 返回 List<Map>: [{bucketTime, targetId, metricKey, value}, ...]
-  const rows = (r.data || []).filter(row => row.metricKey === cfg.metricKey && row.targetId === cfg.targetId)
+  // axios 拦截器已剥壳，r 即 data 本体（List<Map>）
+  const rows = (Array.isArray(r) ? r : (r?.records || r?.list || []))
+    .filter(row => row.metricKey === cfg.metricKey && row.targetId === cfg.targetId)
   rows.sort((a, b) => String(a.bucketTime).localeCompare(String(b.bucketTime)))
   renderChart(rows)
 }
@@ -36,11 +37,16 @@ function renderChart (rows) {
     chart = echarts.init(chartRef.value)
   }
   if (!chart) return
-  const xs = rows.map(r => String(r.bucketTime).substring(11, 16))
+  // 时间精度：秒级（截取 HH:mm:ss，第 11-19 位）
+  const xs = rows.map(r => String(r.bucketTime).substring(11, 19))
   const ys = rows.map(r => r.value != null ? Number(r.value) : 0)
   chart.setOption({
-    grid: { left: 32, right: 8, top: 8, bottom: 20 },
-    xAxis: { type: 'category', data: xs, axisLabel: { interval: 'auto' } },
+    grid: { left: 40, right: 12, top: 12, bottom: 32 },
+    xAxis: {
+      type: 'category',
+      data: xs,
+      axisLabel: { interval: 'auto', rotate: 45, fontSize: 10 }
+    },
     yAxis: { type: 'value' },
     series: [{ type: 'line', data: ys, smooth: true, showSymbol: false, areaStyle: {} }],
     tooltip: { trigger: 'axis' }
@@ -52,10 +58,19 @@ function formatTime (d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-onMounted(fetchData)
+onMounted(() => {
+  fetchData()
+  // 容器大小变化时让 echarts 重新渲染
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(() => {
+      if (chart) chart.resize()
+    })
+    if (chartRef.value) ro.observe(chartRef.value)
+  }
+})
 watch(() => [props.config.targetId, props.config.metricKey, props.config.timeRangeHours], fetchData)
 </script>
 
 <style scoped>
-.line-chart { min-height: 60px; }
+.line-chart { width: 100%; height: 100%; display: flex; flex-direction: column }
 </style>

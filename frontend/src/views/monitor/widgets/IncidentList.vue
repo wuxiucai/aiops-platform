@@ -1,7 +1,7 @@
 <template>
   <div class="incident-list">
     <el-table :data="rows" size="small" stripe>
-      <el-table-column prop="incidentNo" label="事件号" width="150" show-overflow-tooltip/>
+      <el-table-column prop="incident_no" label="事件号" width="150" show-overflow-tooltip/>
       <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip/>
       <el-table-column label="级别" width="80">
         <template #default="{ row }">
@@ -19,39 +19,35 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import request from '../../../utils/request'
 
 const props = defineProps({ config: { type: Object, required: true } })
 const rows = ref([])
 
 function statusType (s) {
-  switch (s) {
-    case 'open': return 'danger'
-    case 'processing': return 'warning'
-    case 'resolved': return 'success'
-    default: return 'info'
-  }
+  if (s === 'open') return 'danger'
+  if (s === 'processing') return 'warning'
+  if (s === 'resolved') return 'success'
+  return 'info'
 }
 function statusLabel (s) {
-  switch (s) {
-    case 'open': return '打开'
-    case 'processing': return '处理中'
-    case 'resolved': return '已解决'
-    default: return s
-  }
+  if (s === 'open') return '打开'
+  if (s === 'processing') return '处理中'
+  if (s === 'resolved') return '已解决'
+  return s
 }
 
 async function load () {
-  const status = props.config.status || 'open'
-  const limit = props.config.limit || 10
-  const r = await request.get('/api/incident/page', {
-    params: { current: 1, size: limit, status }
-  })
-  if (r.code === 200) {
-    rows.value = r.data.records || []
+  const params = {
+    size: props.config.limit || 10,
+    status: props.config.status || 'open'
   }
+  if (props.config.targetId) params.targetId = props.config.targetId
+  const r = await request.get('/api/dashboard-stat/incident-page', { params })
+  rows.value = (r && r.records) || []
 }
 
 onMounted(load)
+watch(() => [props.config.targetId, props.config.status], load)
 </script>

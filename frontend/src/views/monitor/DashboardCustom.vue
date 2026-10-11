@@ -34,6 +34,11 @@
 
           <el-divider style="margin: 10px 0"/>
 
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 4px 8px 4px">
+            <span style="font-weight: 500">模板</span>
+            <el-button size="small" type="primary" plain @click="createTemplate">+ 新建模板</el-button>
+          </div>
+
           <div class="tpl-side-list">
             <div
               v-for="t in filteredTemplates"
@@ -76,34 +81,38 @@
         </div>
 
         <el-card shadow="never" v-loading="loading">
-          <grid-layout
-            v-model:layout="layout"
-            :col-num="12"
-            :row-height="80"
-            :is-draggable="mode==='edit'"
-            :is-resizable="mode==='edit'"
-            :vertical-compact="true"
-            :use-css-transforms="true"
-          >
-            <grid-item
-              v-for="item in layout" :key="item.i"
-              :i="item.i" :x="item.x" :y="item.y" :w="item.w" :h="item.h"
-              :min-w="2" :min-h="2"
+          <!-- vue-grid-layout：拖拽 + 调整大小 -->
+          <!-- 绝对定位 + 手动鼠标拖拽（稳定可靠） -->
+          <div v-if="layout.length > 0" class="dash-grid-abs">
+            <div
+              v-for="item in layout"
+              :key="item.i"
+              class="dash-cell-abs"
+              :style="{
+                left: `${item.x / 12 * 100}%`,
+                top: `${item.y * 80}px`,
+                width: `${item.w / 12 * 100}%`,
+                height: `${item.h * 80}px`
+              }"
             >
               <div class="widget-box">
-                <div class="widget-head">
-                  <span class="widget-title">{{ getWidget(item.i)?.title || '未命名' }}</span>
-                  <el-button
-                    v-if="mode==='edit'" size="small" link type="danger"
-                    @click="removeWidget(item.i)">✕</el-button>
+                <div class="widget-head"
+                     @mousedown.prevent="mode==='edit' && onHeadMouseDown(item, $event)">
+                  <span class="widget-title">
+                    <span v-if="mode==='edit'" class="drag-handle" title="按住拖到任意位置">⠿</span>
+                    {{ getWidget(item.i)?.title || '未命名' }}
+                  </span>
+                  <el-button v-if="mode==='edit'" size="small" link type="danger" @click="removeWidget(item.i)">✕</el-button>
                 </div>
                 <div class="widget-body">
-                  <WidgetRenderer :widget="getWidget(item.i)" />
+                  <WidgetRenderer :w="getWidget(item.i)" />
                 </div>
+                <!-- 右下角缩放手柄 -->
+                <div v-if="mode==='edit'" class="resize-handle"
+                     @mousedown.prevent="onResizeMouseDown(item, $event)"></div>
               </div>
-            </grid-item>
-          </grid-layout>
-
+            </div>
+          </div>
           <el-empty v-if="layout.length === 0 && !loading" description="无 widget，点击【添加 Widget】新建" />
         </el-card>
       </el-col>
@@ -114,21 +123,99 @@
       <el-form :model="newWidget" label-width="100px">
         <el-form-item label="类型" required>
           <el-select v-model="newWidget.widgetType" style="width: 100%">
-            <el-option value="stat_card"   label="stat_card — 单一大数字"/>
-            <el-option value="line_chart"  label="line_chart — 时序折线"/>
-            <el-option value="top_alert"   label="top_alert — Top 告警种类"/>
-            <el-option value="top_template"label="top_template — Top 日志模板"/>
-            <el-option value="incident_list" label="incident_list — 进行中事件列表"/>
-            <el-option value="metric_compare" label="metric_compare — 多 metric 对比线"/>
+            <el-option value="stat_card"     label="stat_card — 单一大数字 (KPI 卡片)"/>
+            <el-option value="line_chart"    label="line_chart — 时序折线"/>
+            <el-option value="top_alert"     label="top_alert — Top 告警"/>
+            <el-option value="top_template"  label="top_template — Top 日志模板"/>
+            <el-option value="incident_list" label="incident_list — 进行中事件"/>
+            <el-option value="metric_compare" label="metric_compare — 多指标对比"/>
           </el-select>
         </el-form-item>
         <el-form-item label="标题" required>
           <el-input v-model="newWidget.title" placeholder="如 CPU 使用率"/>
         </el-form-item>
-        <el-form-item label="配置 JSON" required>
-          <el-input v-model="newWidget.config" type="textarea" :rows="4"
-            placeholder='如 {"refType":"alert_pending_count"} 或 {"targetId":1,"metricKey":"cpu.usage","timeRangeHours":1}'/>
-        </el-form-item>
+
+        <!-- ========== stat_card 字段 ========== -->
+        <template v-if="newWidget.widgetType === 'stat_card'">
+          <el-form-item label="统计对象" required>
+            <el-select v-model="newWidget.refType" style="width: 100%">
+              <el-option value="alert_pending_count" label="待处理告警数 (24h pending)"/>
+              <el-option value="incident_open_count" label="进行中故障数 (open)"/>
+              <el-option value="log_anomaly_24h" label="日志异常数 (24h)"/>
+              <el-option value="llm_call_24h" label="LLM 调用数 (24h)"/>
+            </el-select>
+          </el-form-item>
+          <el-form-item label="监控对象（可选，留空为全部）">
+            <el-select v-model="newWidget.targetId" clearable placeholder="全部对象">
+              <el-option v-for="t in allTargets" :key="t.id" :value="t.id" :label="`${t.name} (${t.ip})`"/>
+            </el-select>
+          </el-form-item>
+        </template>
+
+        <!-- ========== line_chart / metric_compare 字段 ========== -->
+        <template v-else-if="newWidget.widgetType === 'line_chart' || newWidget.widgetType === 'metric_compare'">
+          <el-form-item label="监控对象" required>
+            <el-select v-model="newWidget.targetId" style="width: 100%">
+              <el-option v-for="t in allTargets" :key="t.id" :value="t.id" :label="`${t.name} (${t.ip})`"/>
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="newWidget.widgetType === 'metric_compare'" label="指标(多选)" required>
+            <el-select v-model="newWidget.metricKeys" multiple style="width: 100%">
+              <el-option v-for="m in metricDefs" :key="m.metricKey" :value="m.metricKey" :label="`${m.metricName} (${m.metricKey})`"/>
+            </el-select>
+          </el-form-item>
+          <el-form-item v-else label="指标" required>
+            <el-select v-model="newWidget.metricKey" style="width: 100%">
+              <el-option v-for="m in metricDefs" :key="m.metricKey" :value="m.metricKey" :label="`${m.metricName} (${m.metricKey})`"/>
+            </el-select>
+          </el-form-item>
+          <el-form-item label="时间范围">
+            <el-select v-model="newWidget.timeRangeHours">
+              <el-option :value="1" label="1 小时"/>
+              <el-option :value="6" label="6 小时"/>
+              <el-option :value="24" label="24 小时"/>
+              <el-option :value="72" label="3 天"/>
+            </el-select>
+          </el-form-item>
+        </template>
+
+        <!-- ========== top_alert / top_template / incident_list 字段 ========== -->
+        <template v-else-if="newWidget.widgetType === 'top_alert' || newWidget.widgetType === 'top_template' || newWidget.widgetType === 'incident_list'">
+          <el-form-item label="数量限制">
+            <el-input-number v-model="newWidget.limit" :min="1" :max="20"/>
+          </el-form-item>
+          <!-- top_alert: targetId 可选过滤 -->
+          <el-form-item v-if="newWidget.widgetType === 'top_alert'" label="监控对象（可选）">
+            <el-select v-model="newWidget.targetId" clearable placeholder="全部对象">
+              <el-option v-for="t in allTargets" :key="t.id" :value="t.id" :label="`${t.name} (${t.ip})`"/>
+            </el-select>
+          </el-form-item>
+          <!-- top_template: service 可选过滤 -->
+          <el-form-item v-if="newWidget.widgetType === 'top_template'" label="日志服务（可选）">
+            <el-select v-model="newWidget.service" clearable placeholder="全部服务">
+              <el-option v-for="s in logServices" :key="s" :value="s" :label="s"/>
+            </el-select>
+          </el-form-item>
+          <!-- incident_list: targetId 可选过滤 -->
+          <el-form-item v-if="newWidget.widgetType === 'incident_list'" label="监控对象（可选）">
+            <el-select v-model="newWidget.targetId" clearable placeholder="全部对象">
+              <el-option v-for="t in allTargets" :key="t.id" :value="t.id" :label="`${t.name} (${t.ip})`"/>
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="newWidget.widgetType !== 'incident_list'" label="时间范围(h)">
+            <el-select v-model="newWidget.timeRangeHours">
+              <el-option :value="1" label="1 小时"/>
+              <el-option :value="24" label="24 小时"/>
+            </el-select>
+          </el-form-item>
+          <el-form-item v-else label="状态" required>
+            <el-select v-model="newWidget.status">
+              <el-option value="open" label="进行中"/>
+              <el-option value="processing" label="处理中"/>
+              <el-option value="resolved" label="已解决"/>
+            </el-select>
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="addVisible=false">取消</el-button>
@@ -176,7 +263,36 @@ const saving = ref(false)
 const current = ref(null)
 const layout = ref([])
 const addVisible = ref(false)
-const newWidget = reactive({ widgetType: 'line_chart', title: '', config: '' })
+const newWidget = reactive({
+  widgetType: 'line_chart',
+  title: '',
+  refType: 'alert_pending_count',
+  targetId: null,
+  metricKey: '',
+  metricKeys: [],
+  timeRangeHours: 1,
+  limit: 5,
+  status: 'open',
+  config: ''
+})
+const allTargets = ref([])
+const logServices = ref([])
+const metricDefs = ref([])
+
+async function loadTargetsAndMetrics () {
+  try {
+    const t = await request.get('/api/monitor/target/page', { params: { current: 1, size: 100 } })
+    allTargets.value = t.records || []
+  } catch (e) { /* 静默 */ }
+  try {
+    const m = await request.get('/api/monitor/metric/definitions')
+    metricDefs.value = Array.isArray(m) ? m : (m?.records || [])
+  } catch (e) { /* 静默 */ }
+  try {
+    const s = await request.get('/api/dashboard-stat/log-services')
+    logServices.value = Array.isArray(s) ? s : []
+  } catch (e) { /* 静默 */ }
+}
 
 const allTemplates = ref([])
 const groupNodes = ref([])
@@ -190,7 +306,8 @@ const groupForm = ref({ id: null, name: '', parentId: 0 })
 const widgets = computed(() => current.value?.widgets || [])
 
 function getWidget (i) {
-  return widgets.value.find(w => w.id === i)
+  // i 可能是 string （grid item) 或 number (widget id)
+  return widgets.value.find(w => w.id === i || w.id === Number(i) || String(w.id) === i)
 }
 
 /* 把平铺 node 列表转有序树形 （深度优先 + _depth)，便于 el-tree 风格平铺渲染 */
@@ -271,17 +388,68 @@ async function load () {
 async function openTemplate (id) {
   if (!id) return
   const data = await getTemplate(id)
+  console.log('[openTemplate] START id=', id, 'widgets=', data?.widgets, 'layoutConfig=', data?.layoutConfig)
+  // widgets 兜底：后端返回可能是 string （在 layoutConfig 是 string 的情况下） — 转 array
+  if (data && !Array.isArray(data.widgets)) {
+    data.widgets = typeof data.widgets === 'string' ? JSON.parse(data.widgets || '[]') : []
+  }
   current.value = data
   moveTargetGroup.value = data?.groupId ?? 0
-  const lc = Array.isArray(data?.layoutConfig) ? data.layoutConfig : []
+  // layoutConfig 兜底：string 或 array 都接受
+  let lc = []
+  if (Array.isArray(data?.layoutConfig)) {
+    lc = data.layoutConfig
+  } else if (typeof data?.layoutConfig === 'string') {
+    try { lc = JSON.parse(data.layoutConfig) } catch (e) { lc = [] }
+  }
+  // 自动补全 layoutConfig：widgets 在 db 但不在 layoutConfig 里的，附加默认位置
+  const widgets = Array.isArray(data.widgets) ? data.widgets : []
+  const layoutWidgetIds = new Set(lc.map(it => it.widgetId))
+  widgets.forEach((w, idx) => {
+    if (!layoutWidgetIds.has(w.id)) {
+      // 追加到 layout 末尾
+      lc.push({
+        widgetId: w.id,
+        x: (idx % 2) * 6,
+        y: Math.floor(idx / 2) * 4,
+        w: 6,
+        h: 4
+      })
+    }
+  })
+  console.log('[openTemplate] lc=', JSON.stringify(lc), 'lc.length=', lc.length)
   layout.value = lc.map((it, idx) => ({
-    i: it.widgetId != null ? it.widgetId : idx,
+    i: String(it.widgetId != null ? it.widgetId : idx),
     x: it.x ?? (idx % 2) * 6,
     y: it.y ?? Math.floor(idx / 2) * 4,
     w: it.w ?? 6,
     h: it.h ?? 4,
     static: false
   }))
+  console.log('[openTemplate] END layout=', layout.value.length, 'items')
+}
+
+async function createTemplate () {
+  const { value } = await ElMessageBox.prompt('请输入新模板名称', '新建模板', {
+    confirmButtonText: '创建',
+    cancelButtonText: '取消',
+    inputPlaceholder: '如：运维值班看板 / 主机监控大盘'
+  }).catch(() => ({ value: null }))
+  if (!value) return
+  try {
+    const r = await request.post('/api/dashboard/template', {
+      name: value,
+      layoutConfig: [],
+      widgets: []
+    })
+    ElMessage.success('模板已创建，请添加 widget')
+    // 立即打开新模板（不依赖 load()，因为 load 会优先打开 default 模板）
+    const newId = r?.id
+    if (newId) {
+      await openTemplate(newId)
+    }
+    await load()
+  } catch (e) { /* 拦截器已弹错 */ }
 }
 
 async function save () {
@@ -326,6 +494,90 @@ function removeWidget (i) {
   if (idx >= 0) layout.value.splice(idx, 1)
 }
 
+/* ========== Mouse 拖拽（mousedown + mousemove + mouseup）========== */
+const draggingItem = ref(null)
+let dragStartX = 0
+let dragStartY = 0
+let dragStartCellX = 0
+let dragStartCellY = 0
+
+const resizingItem = ref(null)
+let resizeStartX = 0
+let resizeStartY = 0
+let resizeStartW = 0
+let resizeStartH = 0
+
+function onHeadMouseDown (item, ev) {
+  ev.preventDefault()
+  ev.stopPropagation()
+  draggingItem.value = item
+  dragStartX = ev.clientX
+  dragStartY = ev.clientY
+  dragStartCellX = item.x
+  dragStartCellY = item.y
+  document.addEventListener('mousemove', onDocMouseMove)
+  document.addEventListener('mouseup', onDocMouseUp, { once: true })
+}
+
+function onResizeMouseDown (item, ev) {
+  ev.preventDefault()
+  ev.stopPropagation()
+  resizingItem.value = item
+  resizeStartX = ev.clientX
+  resizeStartY = ev.clientY
+  resizeStartW = item.w
+  resizeStartH = item.h
+  document.addEventListener('mousemove', onDocMouseMove)
+  document.addEventListener('mouseup', onDocMouseUp, { once: true })
+}
+
+function onDocMouseMove (ev) {
+  const grid = document.querySelector('.dash-grid-abs')
+  if (!grid) return
+  const rect = grid.getBoundingClientRect()
+  const cellW = rect.width / 12
+  const cellH = 80
+
+  if (draggingItem.value) {
+    const dx = ev.clientX - dragStartX
+    const dy = ev.clientY - dragStartY
+    const cellsX = Math.round(dx / cellW)
+    const cellsY = Math.round(dy / cellH)
+    let newX = dragStartCellX + cellsX
+    let newY = dragStartCellY + cellsY
+    newX = Math.max(0, Math.min(12 - draggingItem.value.w, newX))
+    newY = Math.max(0, newY)
+    draggingItem.value.x = newX
+    draggingItem.value.y = newY
+  }
+
+  if (resizingItem.value) {
+    const dx = ev.clientX - resizeStartX
+    const dy = ev.clientY - resizeStartY
+    const cellsX = Math.round(dx / cellW)
+    const cellsY = Math.round(dy / cellH)
+    let newW = resizeStartW + cellsX
+    let newH = resizeStartH + cellsY
+    newW = Math.max(2, Math.min(12, newW))
+    newH = Math.max(2, newH)
+    if (resizingItem.value.x + newW > 12) newW = 12 - resizingItem.value.x
+    resizingItem.value.w = newW
+    resizingItem.value.h = newH
+  }
+}
+
+function onDocMouseUp () {
+  draggingItem.value = null
+  resizingItem.value = null
+  document.removeEventListener('mousemove', onDocMouseMove)
+}
+/* ========== /Mouse 拖拽 ========== */
+
+/* ========== Widget 位置挪动（按钮方式，最稳定）========== */
+/* ========== /Mouse 拖拽 ========== */
+
+/* ========== /Drag & Drop ========== */
+
 function addWidget () {
   if (!current.value?.id) {
     ElMessage.warning('请先打开或新建一个模板')
@@ -337,22 +589,80 @@ function addWidget () {
 }
 
 async function doAddWidget () {
-  if (!newWidget.title || !newWidget.config) {
-    ElMessage.warning('标题与配置必填')
+  if (!newWidget.title) {
+    ElMessage.warning('标题必填')
     return
   }
+  if (!current.value?.id) {
+    ElMessage.warning('请先选中一个模板再添加 Widget')
+    return
+  }
+  // 按 widgetType 拼 config JSON
+  let configObj = {}
+  if (newWidget.widgetType === 'stat_card') {
+    configObj = { refType: newWidget.refType }
+    if (newWidget.targetId) configObj.targetId = newWidget.targetId
+  } else if (newWidget.widgetType === 'line_chart') {
+    if (!newWidget.targetId || !newWidget.metricKey) { ElMessage.warning('选择监控对象与指标'); return }
+    configObj = { targetId: newWidget.targetId, metricKey: newWidget.metricKey, timeRangeHours: newWidget.timeRangeHours }
+  } else if (newWidget.widgetType === 'metric_compare') {
+    if (!newWidget.targetId || !newWidget.metricKeys?.length) { ElMessage.warning('选择监控对象与指标'); return }
+    configObj = { targetId: newWidget.targetId, metricKeys: newWidget.metricKeys, timeRangeHours: newWidget.timeRangeHours }
+  } else if (newWidget.widgetType === 'top_alert') {
+    configObj = { limit: newWidget.limit, timeRangeHours: newWidget.timeRangeHours }
+    if (newWidget.targetId) configObj.targetId = newWidget.targetId
+  } else if (newWidget.widgetType === 'top_template') {
+    configObj = { limit: newWidget.limit, timeRangeHours: newWidget.timeRangeHours }
+    if (newWidget.service) configObj.service = newWidget.service
+  } else if (newWidget.widgetType === 'incident_list') {
+    configObj = { limit: newWidget.limit, status: newWidget.status }
+    if (newWidget.targetId) configObj.targetId = newWidget.targetId
+  }
+  // widgets 可能为 undefined，先兼容空数组
+  const existingWidgets = current.value.widgets || []
   const payload = {
-    widgets: [...current.value.widgets, {
+    widgets: [...existingWidgets, {
       widgetType: newWidget.widgetType,
       title: newWidget.title,
-      config: newWidget.config,
-      sort: current.value.widgets.length
+      config: JSON.stringify(configObj),
+      sort: existingWidgets.length
     }],
+    // 暂存现有 layout（新 widget 在响应里拿真实 id 后再 patch）
     layoutConfig: layout.value.map(it => ({ widgetId: it.i, x: it.x, y: it.y, w: it.w, h: it.h }))
   }
   try {
     await saveTemplate(current.value.id, payload)
     addVisible.value = false
+    // 重新 getTemplate 取回后端真实 widget 数据（含 id) 与 layoutConfig
+    const refreshed = await getTemplate(current.value.id)
+    const realWidgets = Array.isArray(refreshed?.widgets) ? refreshed.widgets : []
+    // 挑出新加的那个：sort === existingWidgets.length
+    const newWidget = realWidgets.find(w => w.sort === existingWidgets.length)
+    if (newWidget) {
+      // 给新 widget 分配位置：排在最后，宽 6 列高 4 行
+      const newLayoutItem = {
+        i: newWidget.id,
+        x: (realWidgets.length - 1) % 2 * 6,
+        y: Math.floor((realWidgets.length - 1) / 2) * 4,
+        w: 6,
+        h: 4,
+        static: false
+      }
+      layout.value = [...layout.value, newLayoutItem]
+      // 持久化最终 layout_config
+      try {
+        await saveTemplate(current.value.id, {
+          widgets: realWidgets,
+          layoutConfig: layout.value.map(it => ({ widgetId: it.i, x: it.x, y: it.y, w: it.w, h: it.h }))
+        })
+      } catch (e) { console.warn('layout save failed:', e) }
+    }
+    // 重置 newWidget
+    newWidget.title = ''
+    newWidget.config = ''
+    newWidget.refType = 'alert_pending_count'
+    newWidget.metricKey = ''
+    newWidget.metricKeys = []
     await openTemplate(current.value.id)
   } catch (e) { /* 拦截器已弹错 */ }
 }
@@ -397,7 +707,7 @@ async function onDeleteGroup (g) {
   } catch (e) { /* 拦截器已弹错 */ }
 }
 
-onMounted(load)
+onMounted(() => { load(); loadTargetsAndMetrics() })
 </script>
 
 <style scoped>
@@ -427,7 +737,107 @@ onMounted(load)
 .tpl-side-list .tpl-item:hover { background: #f5f7fa }
 .tpl-side-list .tpl-item.active { background: #ecf3ff; color: #4361ee; font-weight: 500; }
 .widget-box { display: flex; flex-direction: column; height: 100%; border: 1px solid #e4e7ed; border-radius: 3px; background: #fff }
-.widget-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; border-bottom: 1px solid #f0f0f0; font-size: 12px }
-.widget-title { color: #303133; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.widget-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; border-bottom: 1px solid #f0f0f0; font-size: 12px; user-select: none; -webkit-user-select: none; cursor: grab; }
+.widget-head:active { cursor: grabbing; }
+.widget-ops { display: flex; gap: 2px; align-items: center; }
+.widget-ops .el-button { padding: 2px 4px !important; font-size: 12px !important; }
+.widget-title { color: #303133; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+.drag-handle { color: #909399; font-size: 14px; letter-spacing: -2px; }
 .widget-body { flex: 1; overflow: hidden; padding: 4px }
+
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-auto-rows: 80px;
+  gap: 12px;
+  padding: 12px;
+}
+.dash-cell { overflow: hidden }
+.dash-grid-abs {
+    position: relative;
+    width: 100%;
+    min-height: 600px;
+  }
+.dash-cell-abs {
+    position: absolute;
+    overflow: hidden;
+}
+.widget-box {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border: 1px solid #e4e7ed;
+  border-radius: 3px;
+  background: #fff;
+  position: relative;
+}
+.resize-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  bottom: 0;
+  right: 0;
+  cursor: se-resize;
+  background: transparent;
+  z-index: 4;
+}
+.resize-handle::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+  border-right: 2px solid rgba(0,0,0,0.4);
+  border-bottom: 2px solid rgba(0,0,0,0.4);
+}
+
+/* vue-grid-layout 必需样式 */
+.vue-grid-layout {
+    position: relative;
+    transition: height 200ms ease;
+    background: transparent;
+}
+.vue-grid-item {
+    transition: all 200ms ease;
+    transition-property: left, top, right;
+    background: #fff;
+    border: 1px solid #dcdfe6;
+    border-radius: 4px;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+.vue-grid-item.cssTransforms { transition-property: transform; }
+.vue-grid-item.resizing { opacity: 0.9; z-index: 3; }
+.vue-grid-item.static { background: #f5f7fa; }
+.vue-grid-item.vue-grid-placeholder {
+    background: #e6a23c;
+    opacity: 0.2;
+    transition-duration: 100ms;
+    z-index: 2;
+    user-select: none;
+}
+.vue-grid-item > .vue-resizable-handle {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    bottom: 0;
+    right: 0;
+    cursor: se-resize;
+    background: transparent;
+    z-index: 4;
+}
+.vue-grid-item > .vue-resizable-handle::after {
+    content: "";
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    width: 5px;
+    height: 5px;
+    border-right: 2px solid rgba(0, 0, 0, 0.4);
+    border-bottom: 2px solid rgba(0, 0, 0, 0.4);
+}
+.vue-grid-item:not(.vue-grid-placeholder) {
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+}
 </style>

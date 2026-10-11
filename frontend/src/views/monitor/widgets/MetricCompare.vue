@@ -21,28 +21,31 @@ async function fetchData () {
     startTime: formatTime(new Date(Date.now() - hours * 3600_000)),
     endTime: formatTime(new Date()),
     aggregation: 'avg',
-    step: hours >= 24 ? '1h' : '5m'
+    // 时间粒度：1h/6h 窗口按 1 分钟聚合；24h+ 按 1 小时
+    step: hours >= 24 ? '1h' : (hours >= 6 ? '5m' : '1m')
   }
   const r = await request.post('/api/monitor/metric/query', body)
-  if (r.code !== 200) return
-  render(groupSeries(r.data || [], cfg.metricKeys, cfg.targetId))
+  // axios 拦截器已剥壳,r 即 data 本体 (List<Map>)
+  const rows = Array.isArray(r) ? r : (r?.records || [])
+  render(groupSeries(rows, cfg.metricKeys, cfg.targetId))
 }
 
 function groupSeries (rows, metricKeys, targetId) {
+  // 时间精度：秒级（HH:mm:ss）
   const xsSet = new Set()
-  rows.forEach(r => { if (r.target_id === targetId) xsSet.add(String(r.bucket).substring(11, 16)) })
+  rows.forEach(r => { if (r.targetId === targetId) xsSet.add(String(r.bucketTime).substring(11, 19)) })
   const xs = Array.from(xsSet).sort()
   const da = metricKeys.map(mk => {
-    const matched = rows.filter(r => r.metric_key === mk && r.target_id === targetId)
-      .sort((a, b) => String(a.bucket).localeCompare(String(b.bucket)))
+    const matched = rows.filter(r => r.metricKey === mk && r.targetId === targetId)
+      .sort((a, b) => String(a.bucketTime).localeCompare(String(b.bucketTime)))
     return {
       name: mk,
       type: 'line',
       showSymbol: false,
       smooth: true,
       data: xs.map(b => {
-        const row = matched.find(x => String(x.bucket).substring(11, 16) === b)
-        return row && row.val != null ? Number(row.val) : null
+        const row = matched.find(x => String(x.bucketTime).substring(11, 19) === b)
+        return row && row.value != null ? Number(row.value) : null
       })
     }
   })
@@ -53,8 +56,8 @@ function render (g) {
   if (!chart && chartRef.value) chart = echarts.init(chartRef.value)
   if (!chart) return
   chart.setOption({
-    grid: { left: 32, right: 8, top: 30, bottom: 20 },
-    xAxis: { type: 'category', data: g.xs },
+    grid: { left: 40, right: 12, top: 30, bottom: 32 },
+    xAxis: { type: 'category', data: g.xs, axisLabel: { interval: 'auto', rotate: 45, fontSize: 10 } },
     yAxis: { type: 'value' },
     legend: { top: 4, textStyle: { fontSize: 10 } },
     tooltip: { trigger: 'axis' },
@@ -67,6 +70,15 @@ function formatTime (d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-onMounted(fetchData)
+onMounted(() => {
+  fetchData()
+  // 容器大小变化时让 echarts 重新渲染
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(() => {
+      if (chart) chart.resize()
+    })
+    if (chartRef.value) ro.observe(chartRef.value)
+  }
+})
 watch(() => [props.config.targetId, props.config.metricKeys, props.config.timeRangeHours], fetchData)
 </script>
