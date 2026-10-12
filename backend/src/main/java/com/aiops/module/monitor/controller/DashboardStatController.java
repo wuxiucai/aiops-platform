@@ -145,4 +145,112 @@ public class DashboardStatController {
         out.put("total", total);
         return Result.ok(out);
     }
+
+    /* ================== 监控大盘全局概览 ================== */
+
+    /** 高 CPU 判定阈值（%） */
+    private static final double CPU_HOT_THRESHOLD = 80.0;
+    /** 高内存判定阈值（%） */
+    private static final double MEM_HIGH_THRESHOLD = 85.0;
+
+    /**
+     * 监控大盘「整体概览」聚合接口：
+     * 对象构成 / Agent 在线、活跃 CRITICAL 告警机器数、高 CPU / 高内存机器数（含最高负载目标）、
+     * 开放事件、24h 告警、全部 host 近 1h CPU/内存均值。
+     * 一次请求带齐，供大盘顶部概览卡片使用。
+     */
+    @Operation(summary = "监控大盘全局概览")
+    @RequirePerm("monitor:dashboard:list")
+    @GetMapping("/overview")
+    public Result<Map<String, Object>> overview() {
+        Map<String, Object> out = new HashMap<>();
+
+        // ---- 监控对象构成 + Agent 在线 ----
+        Long hostCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM monitor_target WHERE deleted=0 AND target_type='host'", Long.class);
+        Long serviceCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM monitor_target WHERE deleted=0 AND target_type='service'", Long.class);
+        Long agentOnline = jdbc.queryForObject(
+                // agent_status 字段从未被回写（默认 unknown），在线判定与 AgentController 一致：心跳在 2 分钟内
+                "SELECT COUNT(*) FROM monitor_target WHERE deleted=0 " +
+                        "AND last_heartbeat IS NOT NULL AND last_heartbeat >= DATE_SUB(NOW(), INTERVAL 2 MINUTE)",
+                Long.class);
+        long targetTotal = nz(hostCount) + nz(serviceCount);
+        out.put("targetTotal", targetTotal);
+        out.put("hostCount", nz(hostCount));
+        out.put("serviceCount", nz(serviceCount));
+        out.put("agentOnline", nz(agentOnline));
+        out.put("agentOffline", Math.max(0, targetTotal - nz(agentOnline)));
+
+        // ---- 告警 / 事件 ----
+        out.put("pendingAlerts", nz(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM alert_record WHERE status='pending'", Long.class)));
+        // 活跃 CRITICAL 告警涉及的机器数（去重 target）
+        out.put("criticalAlertTargets", nz(jdbc.queryForObject(
+                "SELECT COUNT(DISTINCT target_id) FROM alert_record WHERE status='pending' AND level='CRITICAL'",
+                Long.class)));
+        out.put("alert24h", nz(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM alert_record WHERE create_time > DATE_SUB(NOW(), INTERVAL 24 HOUR)",
+                Long.class)));
+        out.put("openIncidents", nz(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM alert_incident WHERE status='open'", Long.class)));
+
+        // ---- 高 CPU / 高内存机器：取每个 target 最近 15min 内最新一条采样 ----
+        String latestSql = """
+                SELECT t.name AS name, m.metric_value AS v
+                FROM metric_data m
+                JOIN monitor_target t ON t.id = m.target_id AND t.deleted = 0
+                JOIN (SELECT target_id, MAX(collect_time) AS mt
+                        FROM metric_data
+                       WHERE metric_key = ? AND collect_time >= DATE_SUB(NOW(), INTERVAL 15 MINUTE)
+                       GROUP BY target_id) l
+                  ON l.target_id = m.target_id AND l.mt = m.collect_time
+                WHERE m.metric_key = ?
+                """;
+        fillHighLoad(out, "cpu", latestSql, "cpu.usage", CPU_HOT_THRESHOLD);
+        fillHighLoad(out, "mem", latestSql, "mem.usage", MEM_HIGH_THRESHOLD);
+
+        out.put("cpuThreshold", CPU_HOT_THRESHOLD);
+        out.put("memThreshold", MEM_HIGH_THRESHOLD);
+
+        // ---- 全部 host 近 1h CPU / 内存均值 ----
+        String avgSql = """
+                SELECT AVG(m.metric_value) FROM metric_data m
+                WHERE m.metric_key = ? AND m.collect_time >= DATE_SUB(NOW(), INTERVAL 60 MINUTE)
+                  AND EXISTS (SELECT 1 FROM monitor_target t
+                               WHERE t.id = m.target_id AND t.deleted = 0 AND t.target_type = 'host')
+                """;
+        Double avgCpu = jdbc.queryForObject(avgSql, Double.class, "cpu.usage");
+        Double avgMem = jdbc.queryForObject(avgSql, Double.class, "mem.usage");
+        out.put("avgCpu", avgCpu == null ? null : round1(avgCpu));
+        out.put("avgMem", avgMem == null ? null : round1(avgMem));
+
+        return Result.ok(out);
+    }
+
+    /** 计算 high{kind}Count 与 top{kind}Name/Value（最新采样里超过阈值的机器数 + 最高的一台） */
+    private void fillHighLoad(Map<String, Object> out, String kind, String latestSql,
+                              String metricKey, double threshold) {
+        List<Map<String, Object>> rows = jdbc.queryForList(latestSql, metricKey, metricKey);
+        int high = 0;
+        String topName = null;
+        Double topValue = null;
+        for (Map<String, Object> r : rows) {
+            Object raw = r.get("v");
+            if (raw == null) continue;
+            double v = ((Number) raw).doubleValue();
+            if (v >= threshold) high++;
+            if (topValue == null || v > topValue) {
+                topValue = v;
+                topName = (String) r.get("name");
+            }
+        }
+        out.put("high" + kind + "Count", high);
+        out.put("top" + kind + "Name", topName);
+        out.put("top" + kind + "Value", topValue == null ? null : round1(topValue));
+    }
+
+    private static long nz(Long v) { return v == null ? 0L : v; }
+
+    private static double round1(double v) { return Math.round(v * 10.0) / 10.0; }
 }

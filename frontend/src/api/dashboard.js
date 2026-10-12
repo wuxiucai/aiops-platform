@@ -1,5 +1,6 @@
 import request from '../utils/request'
 
+export function getStatOverview()        { return request.get('/api/dashboard-stat/overview') }
 export function listTemplates()         { return request.get('/api/dashboard/templates') }
 export function getTemplate(id)          { return request.get(`/api/dashboard/template/${id}`) }
 export function createTemplate(body)     { return request.post('/api/dashboard/template', body) }
