@@ -14,7 +14,14 @@
                 <when test="rawFormat">${expression}</when>
                 <otherwise>DATE_FORMAT(collect_time, #{expression})</otherwise>
             </choose> AS bucketTime,
-            ROUND(AVG(metric_value), 2) AS value
+            <!-- 修复 #12：聚合函数按 aggregation 参数动态生成（Controller 已白名单校验 avg/max/min/sum/count） -->
+            ROUND(<choose>
+                <when test="aggregation == 'max'">MAX(metric_value)</when>
+                <when test="aggregation == 'min'">MIN(metric_value)</when>
+                <when test="aggregation == 'sum'">SUM(metric_value)</when>
+                <when test="aggregation == 'count'">COUNT(metric_value)</when>
+                <otherwise>AVG(metric_value)</otherwise>
+            </choose>, 2) AS value
         FROM metric_data
         WHERE collect_time BETWEEN #{startTime} AND #{endTime}
           AND target_id IN

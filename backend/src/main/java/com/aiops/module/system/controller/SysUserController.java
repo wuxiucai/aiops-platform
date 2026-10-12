@@ -79,6 +79,10 @@ public class SysUserController {
         }
         SysUser user = new SysUser();
         user.setUsername(req.getUsername());
+        // 修复 #19：password 无 @NotBlank，null 会到 BCrypt.encode(null) 抛 500
+        if (req.getPassword() == null || req.getPassword().isBlank()) {
+            throw new BizException("密码不能为空");
+        }
         user.setPassword(passwordEncoder.encode(req.getPassword()));
         user.setNickname(req.getNickname());
         user.setEmail(req.getEmail());

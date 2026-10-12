@@ -299,7 +299,8 @@ public class AlertDetectServiceImpl implements AlertDetectService {
         return false;
     }
 
-    /** 抑制：service 类型，若其 host 状态 down 则不发 */
+    /** 抑制：service 类型，且仅当其归属 host（groupId 相同组内的 host，或无分组时按 IP 网段不匹配则不抑制）down 才抑制。
+     *  修复 #8：旧实现对「任意一台 host down」就抑制全部 service 告警，一台无关机器离线会导致全网静默漏报。 */
     private boolean isSuppressed(Long targetId) {
         MonitorTarget t = monitorTargetMapper.selectById(targetId);
         if (t == null) {
@@ -308,9 +309,12 @@ public class AlertDetectServiceImpl implements AlertDetectService {
         if (!"service".equalsIgnoreCase(t.getTargetType())) {
             return false;
         }
+        // 归属匹配策略：service 与 host 同属一个监控分组（group_id 相同）才可能被其抑制；
+        // service 未分组（groupId 为 null）时不做 host 抑制，避免误杀。
         List<MonitorTarget> hosts = monitorTargetMapper.selectList(
                 new LambdaQueryWrapper<MonitorTarget>()
-                        .eq(MonitorTarget::getTargetType, "host"));
+                        .eq(MonitorTarget::getTargetType, "host")
+                        .eq(t.getGroupId() != null, MonitorTarget::getGroupId, t.getGroupId()));
         for (MonitorTarget host : hosts) {
             if (host.getStatus() != null && host.getStatus() == 0) {
                 return true;

@@ -123,7 +123,11 @@ public class DashboardService {
     public void setDefault(Long id) {
         DashboardTemplate target = templateMapper.selectById(id);
         if (target == null) throw new BizException("模板不存在");
-        Long uid = target.getUserId();
+        // 属主校验：只能修改自己创建的 template
+        Long uid = currentUserId();
+        if (!java.util.Objects.equals(target.getUserId(), uid)) {
+            throw new BizException("无权修改他人模板");
+        }
         List<DashboardTemplate> all = templateMapper.selectList(
                 new LambdaQueryWrapper<DashboardTemplate>().eq(DashboardTemplate::getUserId, uid));
         for (DashboardTemplate t : all) {
@@ -139,6 +143,13 @@ public class DashboardService {
     /** 删除模板及其 widgets. */
     @Transactional
     public void delete(Long id) {
+        DashboardTemplate target = templateMapper.selectById(id);
+        if (target == null) throw new BizException("模板不存在");
+        // 属主校验：只能删除自己创建的 template
+        Long uid = currentUserId();
+        if (!java.util.Objects.equals(target.getUserId(), uid)) {
+            throw new BizException("无权删除他人模板");
+        }
         templateMapper.deleteById(id);
         widgetMapper.delete(new LambdaQueryWrapper<DashboardWidget>()
                 .eq(DashboardWidget::getTemplateId, id));
@@ -160,11 +171,16 @@ public class DashboardService {
                 throw new com.aiops.common.BizException("目标分组不存在");
             }
         }
-        DashboardTemplate upd = new DashboardTemplate();
-        upd.setId(templateId);
-        upd.setGroupId(groupId);
-        upd.setUpdateTime(java.time.LocalDateTime.now());
-        templateMapper.updateById(upd);
+        // 修复 #11：updateById 的默认 NOT_NULL 策略会跳过 null 字段，
+        // SET group_id=NULL 必须用 LambdaUpdateChainWrapper.set() 显式生成
+        com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper<
+                com.aiops.module.monitor.entity.DashboardTemplate> w =
+                new com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper<>(templateMapper)
+                        .eq(com.aiops.module.monitor.entity.DashboardTemplate::getId, templateId)
+                        .set(com.aiops.module.monitor.entity.DashboardTemplate::getGroupId, groupId)
+                        .set(com.aiops.module.monitor.entity.DashboardTemplate::getUpdateTime,
+                                java.time.LocalDateTime.now());
+        w.update();
     }
 
     /* ================== 内部 ================== */
