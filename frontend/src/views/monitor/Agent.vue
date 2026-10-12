@@ -295,12 +295,12 @@ function copyText (txt) {
     .catch(() => ElMessage.info('剪贴板失败， 请手动复制'))
 }
 
-let refreshTimer: number | null = null
+let refreshTimer = null
 onMounted(() => {
   loadTargets()
   load()
   // 3s → 30s 轮询在线状态；离开页面时清理，避免后台空转
-  refreshTimer = setInterval(load, 30000) as unknown as number
+  refreshTimer = setInterval(load, 30000)
 })
 onBeforeUnmount(() => {
   if (refreshTimer) clearInterval(refreshTimer)

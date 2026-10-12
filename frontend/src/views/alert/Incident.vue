@@ -329,7 +329,8 @@ async function refreshAi () {
     // 拦截器已解包到 data 层，rc 就是后端 Map 本体。这里不能直接 rc.data
     // （AlertIncident 字段里没有叫 data 的字段，永远 undefined）
     aiData.value = rc || null
-    similar.value = { cases: (sim.data?.cases) || [], matchType: sim.data?.matchType || null }
+    // sim 与 rc 同理：拦截器已解包，Map 顶层就是 { incidentId, seedText, matchType, cases }
+    similar.value = { cases: sim?.cases || [], matchType: sim?.matchType || null }
   } catch (e) {
     ElMessage.error('AI 诊断失败: ' + (e?.message || '未知错误'))
   } finally {
