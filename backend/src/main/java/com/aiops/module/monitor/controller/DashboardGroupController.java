@@ -9,6 +9,7 @@ import com.aiops.module.monitor.mapper.DashboardTemplateMapper;
 import com.aiops.security.RequirePerm;
 import com.aiops.security.UserContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -118,15 +119,14 @@ public class DashboardGroupController {
         DashboardGroup exist = dashboardGroupMapper.selectById(id);
         if (exist == null) throw new BizException("分组不存在");
         if (!Objects.equals(exist.getUserId(), currentUserId())) throw new BizException("无权删除他人分组");
-        // 模板 group_id 置 null
-        List<DashboardTemplate> ts = dashboardTemplateMapper.selectList(
-                new LambdaQueryWrapper<DashboardTemplate>().eq(DashboardTemplate::getGroupId, id));
-        for (DashboardTemplate t : ts) {
-            DashboardTemplate upd = new DashboardTemplate();
-            upd.setId(t.getId());
-            upd.setGroupId(null);
-            dashboardTemplateMapper.updateById(upd);
-        }
+        // 模板 group_id 置 null：MyBatis-Plus 默认 NOT_NULL updateStrategy 会跳过
+        // entity 中 null 字段，用 updateById 传入 groupId=null 时 SET 子句会省略
+        // group_id，导致 group_id 保留原值。改用 LambdaUpdateChainWrapper.set()
+        // 显式生成 SET group_id = NULL。
+        new LambdaUpdateChainWrapper<>(dashboardTemplateMapper)
+                .eq(DashboardTemplate::getGroupId, id)
+                .set(DashboardTemplate::getGroupId, null)
+                .update();
         // 子分组重挂到父
         List<DashboardGroup> children = dashboardGroupMapper.selectList(
                 new LambdaQueryWrapper<DashboardGroup>().eq(DashboardGroup::getParentId, id));

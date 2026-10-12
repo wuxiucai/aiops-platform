@@ -61,6 +61,7 @@
             node-key="id"
             :props="{ label: 'name', children: 'children' }"
             default-expand-all
+            @check-change="permTouched = true"
             style="width: 100%; max-height: 320px; overflow: auto"
           />
         </el-form-item>
@@ -76,7 +77,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { pageRole, addRole, updateRole, deleteRole, treePermission } from '../../api/system'
+import { pageRole, addRole, updateRole, deleteRole, treePermission, getRolePermissions } from '../../api/system'
 import { useUserStore } from '../../store/user'
 
 const userStore = useUserStore()
@@ -110,35 +111,61 @@ async function load() {
   }
 }
 
+// 编辑时是否真正动过权限树勾选；未触碰则提交时不带 permissionIds（后端跳过保留原值）
+const permTouched = ref(false)
+
 async function openDialog(row) {
+  permTouched.value = false
   Object.assign(form, { id: null, roleCode: '', roleName: '', description: '', status: 1, permissionIds: [] })
+  let existingPermIds = []
   if (row) {
     Object.assign(form, {
       id: row.id, roleCode: row.roleCode, roleName: row.roleName,
       description: row.description, status: row.status, permissionIds: []
     })
+    // 回显：拉该角色已有权限 ID，展开后在 tree 中勾选出来
+    try {
+      existingPermIds = (await getRolePermissions(row.id)) || []
+    } catch (e) { /* 拿不到就用空，反正没动就不提交 */ }
   }
   if (permTree.value.length === 0) {
     permTree.value = await treePermission()
   }
   dialogVisible.value = true
-  // 清空上次勾选
-  setTimeout(() => treeRef.value?.setCheckedKeys([]))
+  // 等 dialog 真正渲染后再 setCheckedKeys，否则 tree 可能未挂载
+  setTimeout(() => {
+    if (row && existingPermIds.length > 0) {
+      // 只勾叶子节点即可，el-tree 会自动级联父节点（避免半选/全选状态错乱）
+      const leavesOnly = existingPermIds.filter(id => {
+        const node = treeRef.value?.getNode(id)
+        return node ? (node.isLeaf || !node.childNodes || node.childNodes.length === 0) : true
+      })
+      treeRef.value?.setCheckedKeys(leavesOnly.length > 0 ? leavesOnly : existingPermIds)
+    } else {
+      treeRef.value?.setCheckedKeys([])
+    }
+  })
 }
 
 async function onSave() {
   await formRef.value.validate()
-  // 收集勾选 + 半选父节点
-  const checked = treeRef.value.getCheckedKeys()
-  const half = treeRef.value.getHalfCheckedKeys()
-  form.permissionIds = [...half, ...checked]
   saving.value = true
   try {
+    const body = { ...form }
+    if (form.id && !permTouched.value) {
+      // 未触碰权限树：剔除 permissionIds，后端 if (permissionIds != null) 分支不触发，保留原权限
+      delete body.permissionIds
+    } else {
+      // 触碰过（或新增）：收集勾选 + 半选父节点一起提交
+      const checked = treeRef.value.getCheckedKeys()
+      const half = treeRef.value.getHalfCheckedKeys()
+      body.permissionIds = [...half, ...checked]
+    }
     if (form.id) {
-      await updateRole(form)
+      await updateRole(body)
       ElMessage.success('修改成功')
     } else {
-      await addRole(form)
+      await addRole(body)
       ElMessage.success('新增成功')
     }
     dialogVisible.value = false

@@ -186,6 +186,24 @@ public final class DslSafetyValidator {
                 if (OPERATORS_WITH_FIELD_CHILDREN.contains(k)) {
                     collectFieldNamesUnderOperator(v, usedFields, depth + 1);
                 }
+                // filter / must / should / must_not: query 中嵌套的 query → 递归校验字段白名单
+                if (k.equals("filter") || k.equals("must") || k.equals("should") || k.equals("must_not")) {
+                    // 这些关键词的 query 子句需要递归并白名单校验字段
+                    collectFieldNamesUnderOperator(v, usedFields, depth + 1);
+                }
+                // query_string.query：解析 Lucene 查询串，提取字段名做白名单校验
+                if (k.equals("query_string")) {
+                    extractQueryStringFields(v, usedFields);
+                }
+                // exists.field：字段存在性探测也走白名单
+                if (k.equals("exists")) {
+                    if (v != null && v.isObject()) {
+                        JsonNode field = v.get("field");
+                        if (field != null && field.isTextual()) {
+                            usedFields.add(field.asText());
+                        }
+                    }
+                }
                 // 聚合 aggs 下的 operator 自身也可以携带 field
                 if ("aggs".equals(k) || "aggregations".equals(k)) {
                     collectAggFieldNames(v, usedFields);
@@ -308,6 +326,40 @@ public final class DslSafetyValidator {
                 }
                 // aggs 嵌套：继续递归
                 collectAggFieldNames(opConf, usedFields);
+            }
+        }
+    }
+
+    /** query_string.query 中解析 Lucene 查询串提取 field: 前缀的字段名做白名单校验 */
+    private static void extractQueryStringFields(JsonNode qsNode, Set<String> usedFields) {
+        if (qsNode == null) return;
+        if (qsNode.isObject()) {
+            JsonNode query = qsNode.get("query");
+            if (query != null && query.isTextual()) {
+                String qs = query.asText();
+                // 用正则匹配 Lucene 中形如 field:xxx 或 field:"xxx" 的字段引用
+                java.util.regex.Pattern fieldPattern = java.util.regex.Pattern.compile(
+                        "([a-zA-Z_][a-zA-Z0-9_\\-\\.]*)\\s*:");
+                java.util.regex.Matcher m = fieldPattern.matcher(qs);
+                while (m.find()) {
+                    String field = m.group(1);
+                    // 跳过 ES 内置关键字（_source, _type, _id, _index 等）——这些已在 DENIED_KEYS 拦截
+                    if (!field.startsWith("_")) {
+                        usedFields.add(field);
+                    }
+                }
+            }
+        } else if (qsNode.isTextual()) {
+            // 纯文本查询串
+            String qs = qsNode.asText();
+            java.util.regex.Pattern fieldPattern = java.util.regex.Pattern.compile(
+                    "([a-zA-Z_][a-zA-Z0-9_\\-\\.]*)\\s*:");
+            java.util.regex.Matcher m = fieldPattern.matcher(qs);
+            while (m.find()) {
+                String field = m.group(1);
+                if (!field.startsWith("_")) {
+                    usedFields.add(field);
+                }
             }
         }
     }

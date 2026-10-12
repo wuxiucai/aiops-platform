@@ -10,10 +10,17 @@ import org.springframework.web.reactive.function.client.WebClient;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Actuator/Micrometer 指标采集器：抓取演示服务暴露的 /actuator/metrics。
  * 仅支持 service 类型目标（ip:port 指向演示服务的 actuator 端口）。
+ *
+ * 关键修复：app.qps 之前是 httpMetrics.count / 60.0，
+ * 但 http.server.requests COUNT 是「JVM 启动至今」的累计值，
+ * 运行 1 天后会被除以 60 然后虚高约 1440 倍。
+ * 改成「差分」：保留上次采集的 (count, ts)，本次差值 / 时间差 = 真实 QPS。
  */
 @Slf4j
 @Component
@@ -23,13 +30,16 @@ public class ActuatorCollector implements MetricCollector {
     private final WebClient.Builder webClientBuilder;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    /** targetId → 上次采集的 (count, epochMillis)。ConcurrentHashMap 保证多线程扫描下安全。 */
+    private final Map<Long, HttpMetricsSnapshot> prevSnapshot = new ConcurrentHashMap<>();
+
+    private record HttpMetricsSnapshot(long count, long epochMillis) {}
+
     @Override
     public List<MetricPoint> collect(Long targetId, List<String> metricKeys) {
-        // 由调用方（CollectService）把 target 的 ip:port 传入；此处通过 ThreadLocal 简化传递
         throw new UnsupportedOperationException("请使用 collect(targetId, metricKeys, host, port)");
     }
 
-    /** http.server.requests 的 measurements 数据缓存（一个 key 用两次时用最近一次抓的） */
     private static class HttpMetrics {
         long count;
         double totalTimeSec;
@@ -39,7 +49,6 @@ public class ActuatorCollector implements MetricCollector {
     public List<MetricPoint> collect(Long targetId, List<String> metricKeys, String host, int port) {
         List<MetricPoint> points = new ArrayList<>();
         WebClient client = webClientBuilder.baseUrl("http://" + host + ":" + port).build();
-        // 对 http.server.requests 派生指标（qps / rt.avg / rt.p95）只抓一次，避免重复 HTTP 调用
         HttpMetrics httpMetrics = null;
         for (String key : metricKeys) {
             try {
@@ -68,9 +77,20 @@ public class ActuatorCollector implements MetricCollector {
                             httpMetrics = readHttpServerRequests(client, targetId);
                         }
                         if (httpMetrics.count > 0) {
+                            long nowMs = System.currentTimeMillis();
                             if (key.equals("app.qps")) {
-                                // 近 60s 累计值折算 QPS（Micrometer 未给原生 rate，简化处理）
-                                points.add(new MetricPoint("app.qps", httpMetrics.count / 60.0));
+                                // 差分：本次 count - 上次 count，除以真实时间差
+                                HttpMetricsSnapshot prev = prevSnapshot.put(targetId,
+                                        new HttpMetricsSnapshot(httpMetrics.count, nowMs));
+                                if (prev != null && nowMs > prev.epochMillis()) {
+                                    long deltaCount = httpMetrics.count - prev.count();
+                                    // 进程重启则 count 归零，保守不发出点
+                                    if (deltaCount >= 0) {
+                                        double qps = deltaCount * 1000.0 / (nowMs - prev.epochMillis());
+                                        points.add(new MetricPoint("app.qps", qps));
+                                    }
+                                }
+                                // prev == null：第一次采集，没有 base，跳过本次
                             } else {
                                 double rtMs = httpMetrics.totalTimeSec * 1000.0 / httpMetrics.count;
                                 points.add(new MetricPoint("app.rt.avg", rtMs));

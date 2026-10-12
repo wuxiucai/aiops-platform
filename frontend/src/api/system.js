@@ -30,6 +30,12 @@ export function updateRole(data) {
 export function deleteRole(id) {
   return request.delete(`/api/system/role/${id}`)
 }
+export function getRolePermissions(id) {
+  return request.get(`/api/system/role/${id}/permissions`)
+}
+export function getUserRoles(id) {
+  return request.get(`/api/system/user/${id}/roles`)
+}
 
 // ========== 权限树 ==========
 export function treePermission() {

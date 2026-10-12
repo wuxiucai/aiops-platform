@@ -105,7 +105,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../../utils/request'
@@ -295,11 +295,15 @@ function copyText (txt) {
     .catch(() => ElMessage.info('剪贴板失败， 请手动复制'))
 }
 
+let refreshTimer: number | null = null
 onMounted(() => {
   loadTargets()
   load()
-  // 3s 轮询在线状态
-  setInterval(load, 30000)
+  // 3s → 30s 轮询在线状态；离开页面时清理，避免后台空转
+  refreshTimer = setInterval(load, 30000) as unknown as number
+})
+onBeforeUnmount(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
 })
 </script>
 

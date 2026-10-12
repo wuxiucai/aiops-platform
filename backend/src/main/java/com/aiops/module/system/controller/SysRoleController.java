@@ -82,6 +82,17 @@ public class SysRoleController {
         return Result.ok();
     }
 
+    @Operation(summary = "角色的权限 ID 列表（编辑回显用）")
+    @RequirePerm("system:role:list")
+    @GetMapping("/{id}/permissions")
+    public Result<List<Long>> getRolePermissions(@PathVariable Long id) {
+        List<Long> permIds = sysRolePermissionMapper.selectList(
+                        new LambdaQueryWrapper<SysRolePermission>()
+                                .eq(SysRolePermission::getRoleId, id))
+                .stream().map(SysRolePermission::getPermissionId).toList();
+        return Result.ok(permIds);
+    }
+
     @Operation(summary = "修改角色")
     @RequirePerm("system:role:update")
     @OperLog(module = "system", operation = "修改角色")

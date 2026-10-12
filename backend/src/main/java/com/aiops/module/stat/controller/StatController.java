@@ -135,11 +135,14 @@ public class StatController {
         Map<String, Object> r = new HashMap<>();
         r.put("days", days);
 
+        // llm_call_log.status 实际值是 'success' / 'fail'（见 AiScenarioService /
+        // IncidentReportService / Nl2QueryService），而不是 'ok' /
+        // 'fail'。过滤条件写错会导致 ok_calls 恒为 0、成本面板成功率 0%。
         Map<String, Object> overview = jdbcTemplate.queryForMap("""
                 SELECT
                   COUNT(*) AS total_calls,
-                  SUM(CASE WHEN status='ok'    THEN 1 ELSE 0 END) AS ok_calls,
-                  SUM(CASE WHEN status<>'ok' OR status IS NULL THEN 1 ELSE 0 END) AS failed_calls,
+                  SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS ok_calls,
+                  SUM(CASE WHEN status<>'success' OR status IS NULL THEN 1 ELSE 0 END) AS failed_calls,
                   COALESCE(SUM(prompt_tokens),0)     AS prompt_tokens,
                   COALESCE(SUM(completion_tokens),0) AS completion_tokens,
                   COALESCE(SUM(total_tokens),0)      AS total_tokens,

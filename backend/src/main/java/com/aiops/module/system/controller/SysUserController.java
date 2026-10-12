@@ -57,7 +57,8 @@ public class SysUserController {
         private Long id;
         @NotBlank(message = "用户名不能为空")
         private String username;
-        @Size(min = 6, max = 64, message = "密码长度 6~64")
+        /** password 允许为 null（编辑时不改密码）；null 时跳过 @Size 校验 */
+        @jakarta.validation.constraints.Size(min = 6, max = 64, message = "密码长度 6~64")
         private String password;
         private String nickname;
         private String email;
@@ -110,6 +111,17 @@ public class SysUserController {
             saveRoles(req.getId(), req.getRoleIds());
         }
         return Result.ok();
+    }
+
+    @Operation(summary = "用户的角色 ID 列表（编辑回显用）")
+    @RequirePerm("system:user:list")
+    @GetMapping("/{id}/roles")
+    public Result<List<Long>> getUserRoles(@PathVariable Long id) {
+        List<Long> roleIds = sysUserRoleMapper.selectList(
+                        new LambdaQueryWrapper<com.aiops.module.system.entity.SysUserRole>()
+                                .eq(com.aiops.module.system.entity.SysUserRole::getUserId, id))
+                .stream().map(com.aiops.module.system.entity.SysUserRole::getRoleId).toList();
+        return Result.ok(roleIds);
     }
 
     @Operation(summary = "删除用户")

@@ -73,7 +73,7 @@
           <el-switch v-model="form.status" :active-value="1" :inactive-value="0" />
         </el-form-item>
         <el-form-item label="角色">
-          <el-select v-model="form.roleIds" multiple style="width: 100%">
+          <el-select v-model="form.roleIds" multiple style="width: 100%" @change="roleIdsTouched = true">
             <el-option v-for="r in roleOptions" :key="r.id" :label="r.roleName" :value="r.id" />
           </el-select>
         </el-form-item>
@@ -89,7 +89,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { pageUser, addUser, updateUser, deleteUser, allRole } from '../../api/system'
+import { pageUser, addUser, updateUser, deleteUser, allRole, getUserRoles } from '../../api/system'
 import { useUserStore } from '../../store/user'
 
 const userStore = useUserStore()
@@ -125,13 +125,22 @@ async function load() {
   }
 }
 
+// 编辑时是否真正动过 roleIds 选择器；未触碰则提交时不带 roleIds（后端跳过处理保留原值）
+const roleIdsTouched = ref(false)
+
 async function openDialog(row) {
+  roleIdsTouched.value = false
   Object.assign(form, { id: null, username: '', password: '', nickname: '', email: '', phone: '', status: 1, roleIds: [] })
   if (row) {
+    // 回显该用户已有的 roleIds；后续若用户改动 select，则一起提交
+    let existingRoleIds = []
+    try {
+      existingRoleIds = (await getUserRoles(row.id)) || []
+    } catch (e) { /* 拿不到就用空，反正没动就不提交 */ }
     Object.assign(form, {
       id: row.id, username: row.username, password: '',
       nickname: row.nickname, email: row.email, phone: row.phone,
-      status: row.status, roleIds: []
+      status: row.status, roleIds: existingRoleIds
     })
   }
   if (roleOptions.value.length === 0) {
@@ -144,8 +153,15 @@ async function onSave() {
   await formRef.value.validate()
   saving.value = true
   try {
+    // 关键：编辑态下，若用户未触碰 roleIds 选择器，提交时从 body 中剔除，
+    // 后端 SysUserController.update() 的 `if (roleIds != null)` 分支就不会触发，
+    // 该用户的既有角色不会被清空。
+    const body = { ...form }
+    if (form.id && !roleIdsTouched.value) {
+      delete body.roleIds
+    }
     if (form.id) {
-      await updateUser(form)
+      await updateUser(body)
       ElMessage.success('修改成功')
     } else {
       await addUser(form)

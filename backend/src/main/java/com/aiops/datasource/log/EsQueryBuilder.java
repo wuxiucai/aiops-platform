@@ -93,8 +93,11 @@ public final class EsQueryBuilder {
         // 关键字（must）
         String must = "\"must\": []";
         if (p.keyword() != null && !p.keyword().isBlank()) {
+            // 关键修复：analyzer 必须走白名单（standard / ik_max_word / ik_smart / english / keyword），
+            // 之前直接 String.format 拼接用户传入的 analyzer，可被注入任意 JSON 子句。
+            String analyzer = sanitizeAnalyzer(p.analyzer());
             must = String.format("{\"match\":{\"%s\":{\"query\":\"%s\",\"analyzer\":\"%s\"}}}",
-                    p.messageField(), escape(p.keyword()), p.analyzer());
+                    p.messageField(), escape(p.keyword()), analyzer);
             must = "\"must\": [" + must + "]";
         }
 
@@ -175,5 +178,21 @@ public final class EsQueryBuilder {
 
     private static String escape(String s) {
         return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    /**
+     * analyzer 白名单：只允许 ES 内置合法 analyzer。
+     * null/blank/未知值 → 默认 "standard"，且不再原样拼接 JSON 片段。
+     * 绕过方式只剩"换一个合法 analyzer"——不影响查询结构。
+     */
+    private static String sanitizeAnalyzer(String analyzer) {
+        if (analyzer == null) return "standard";
+        return switch (analyzer) {
+            case "standard", "ik_max_word", "ik_smart", "english", "keyword", "whitespace", "simple" -> analyzer;
+            default -> {
+                // 未知 analyzer：默认 standard，避免注入和 400 错误
+                yield "standard";
+            }
+        };
     }
 }

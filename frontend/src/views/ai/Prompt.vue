@@ -135,14 +135,15 @@ async function load () {
 }
 
 async function preview (row) {
+  // 拦截器已解包到 data 层，r 就是 Prompt 实体本身。r.data 是 undefined。
   const r = await getPrompt(row.id)
-  previewRow.value = r.data
+  previewRow.value = r
   previewVisible.value = true
 }
 
 async function edit (row) {
   const r = await getPrompt(row.id)
-  editRow.value = r.data
+  editRow.value = r
   editVisible.value = true
 }
 
