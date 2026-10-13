@@ -906,9 +906,9 @@ onMounted(() => { load(); loadTargetsAndMetrics() })
 .tpl-side-list .tpl-item:hover { background: #f5f7fa }
 .tpl-side-list .tpl-item.active { background: #ecf3ff; color: #4361ee; font-weight: 500; }
 .tpl-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
-/* 模板操作按钮常显（hover 才出现曾被反馈"看不见"） */
+/* 模板操作按钮常显（hover 才出现曾被反馈"看不见"）。
+   注意：tpl-item.active 是浅蓝底，不能像 group-item（深蓝底）那样把按钮刷成白色 */
 .tpl-side-list .tpl-item .ops { display: flex; gap: 0; flex-shrink: 0 }
-.tpl-side-list .tpl-item.active .ops :deep(.el-button) { color: #fff }
 .widget-box { display: flex; flex-direction: column; height: 100%; border: 1px solid #e4e7ed; border-radius: 3px; background: #fff }
 .widget-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; border-bottom: 1px solid #f0f0f0; font-size: 12px; user-select: none; -webkit-user-select: none; cursor: grab; }
 .widget-head:active { cursor: grabbing; }
