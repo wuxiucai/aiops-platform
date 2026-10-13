@@ -10,6 +10,7 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',   // 同时监听 IPv4/IPv6，避免只绑 [::1] 导致 127.0.0.1 访问不通
     port: 5173,
+    strictPort: true,  // 5173 被占用时直接报错退出，而不是悄悄换端口产生"幽灵地址"
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8080',
