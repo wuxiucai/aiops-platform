@@ -47,8 +47,11 @@
               :class="{active: current?.id === t.id}"
               @click="openTemplate(t.id)"
             >
-              {{ t.name }}
+              <span class="tpl-name">{{ t.name }}</span>
               <el-tag v-if="t.isDefault === 1" size="small" type="success">默认</el-tag>
+              <span class="ops" @click.stop>
+                <el-button size="small" link type="danger" @click="onDeleteTemplate(t)">删</el-button>
+              </span>
             </div>
             <el-empty v-if="filteredTemplates.length === 0" description="无模板" :image-size="60"/>
           </div>
@@ -264,7 +267,7 @@
 <script setup>
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listTemplates, getTemplate, saveTemplate, saveDefault as apiSaveDefault } from '../../api/dashboard'
+import { listTemplates, getTemplate, saveTemplate, saveDefault as apiSaveDefault, deleteTemplate } from '../../api/dashboard'
 import request from '../../utils/request'
 import WidgetRenderer from './WidgetRenderer.vue'
 import { GridLayout, GridItem } from 'vue-grid-layout'
@@ -601,6 +604,26 @@ async function setDefault () {
   } catch (e) { /* 拦截器已弹错 */ }
 }
 
+async function onDeleteTemplate (t) {
+  try {
+    await ElMessageBox.confirm(`确认删除模板「${t.name}」？其下所有 widget 将一并删除。`, '删除模板', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (e) { return }
+  try {
+    await deleteTemplate(t.id)
+    ElMessage.success('已删除')
+    // 删掉的若是当前打开的模板，重新走 load() 打开默认/第一个模板
+    if (current.value?.id === t.id) {
+      current.value = null
+      layout.value = []
+    }
+    await load()
+  } catch (e) { /* 拦截器已弹错 */ }
+}
+
 async function moveCurrent (gid) {
   if (!current.value?.id) return
   try {
@@ -862,6 +885,10 @@ onMounted(() => { load(); loadTargetsAndMetrics() })
 }
 .tpl-side-list .tpl-item:hover { background: #f5f7fa }
 .tpl-side-list .tpl-item.active { background: #ecf3ff; color: #4361ee; font-weight: 500; }
+.tpl-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tpl-side-list .tpl-item .ops { opacity: 0; transition: opacity .15s }
+.tpl-side-list .tpl-item:hover .ops { opacity: 1 }
+.tpl-side-list .tpl-item.active .ops :deep(.el-button) { color: #fff }
 .widget-box { display: flex; flex-direction: column; height: 100%; border: 1px solid #e4e7ed; border-radius: 3px; background: #fff }
 .widget-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; border-bottom: 1px solid #f0f0f0; font-size: 12px; user-select: none; -webkit-user-select: none; cursor: grab; }
 .widget-head:active { cursor: grabbing; }
