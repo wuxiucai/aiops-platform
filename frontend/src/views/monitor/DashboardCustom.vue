@@ -430,10 +430,12 @@ async function openTemplate (id) {
     try { lc = JSON.parse(data.layoutConfig) } catch (e) { lc = [] }
   }
   // 自动补全 layoutConfig：widgets 在 db 但不在 layoutConfig 里的，附加默认位置
+  // 注意统一用 String 比较：save() 历史版本把 widgetId 存成字符串，w.id 是数字，
+  // 类型不一致会让每个 widget 都被误判"无位置"而重复追加（保存一次多一个窗口）
   const widgets = Array.isArray(data.widgets) ? data.widgets : []
-  const layoutWidgetIds = new Set(lc.map(it => it.widgetId))
+  const layoutWidgetIds = new Set(lc.map(it => String(it.widgetId)))
   widgets.forEach((w, idx) => {
-    if (!layoutWidgetIds.has(w.id)) {
+    if (!layoutWidgetIds.has(String(w.id))) {
       // 追加到 layout 末尾
       lc.push({
         widgetId: w.id,
@@ -443,6 +445,14 @@ async function openTemplate (id) {
         h: 4
       })
     }
+  })
+  // 去重：同一 widgetId 只保留第一个位置条目（清理历史脏数据里已积累的重复项）
+  const seen = new Set()
+  lc = lc.filter(it => {
+    const k = String(it.widgetId)
+    if (seen.has(k)) return false
+    seen.add(k)
+    return true
   })
   console.log('[openTemplate] lc=', JSON.stringify(lc), 'lc.length=', lc.length)
   layout.value = lc.map((it, idx) => ({
@@ -483,7 +493,12 @@ async function save () {
   if (!current.value?.id) return
   const payload = {
     name: current.value.name,
-    layoutConfig: layout.value.map(it => ({ widgetId: it.i, x: it.x, y: it.y, w: it.w, h: it.h })),
+    // widgetId 归一化为数字（layout 的 i 是 String(widgetId)），
+    // 避免与 openTemplate 的数字 id 比较不一致导致重开时重复追加窗口
+    layoutConfig: layout.value.map(it => {
+      const n = Number(it.i)
+      return { widgetId: Number.isNaN(n) ? it.i : n, x: it.x, y: it.y, w: it.w, h: it.h }
+    }),
     widgets: current.value.widgets
   }
   saving.value = true
@@ -749,7 +764,7 @@ async function doAddWidget () {
     if (newWidget) {
       // 给新 widget 分配位置：排在最后，宽 6 列高 4 行
       const newLayoutItem = {
-        i: newWidget.id,
+        i: String(newWidget.id),
         x: (realWidgets.length - 1) % 2 * 6,
         y: Math.floor((realWidgets.length - 1) / 2) * 4,
         w: 6,
@@ -757,11 +772,14 @@ async function doAddWidget () {
         static: false
       }
       layout.value = [...layout.value, newLayoutItem]
-      // 持久化最终 layout_config
+      // 持久化最终 layout_config（widgetId 统一为数字，避免重开时类型不一致误判）
       try {
         await saveTemplate(current.value.id, {
           widgets: realWidgets,
-          layoutConfig: layout.value.map(it => ({ widgetId: it.i, x: it.x, y: it.y, w: it.w, h: it.h }))
+          layoutConfig: layout.value.map(it => {
+            const n = Number(it.i)
+            return { widgetId: Number.isNaN(n) ? it.i : n, x: it.x, y: it.y, w: it.w, h: it.h }
+          })
         })
       } catch (e) { console.warn('layout save failed:', e) }
     }
