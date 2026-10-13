@@ -8,4 +8,3 @@ export function createTemplate(body)     { return request.post('/api/dashboard/t
 export function saveTemplate(id, body)   { return request.put(`/api/dashboard/template/${id}`, body) }
 export function deleteTemplate(id)       { return request.delete(`/api/dashboard/template/${id}`) }
 export function saveDefault(id)          { return request.put(`/api/dashboard/template/${id}/default`) }
-export function deleteTemplate(id)       { return request.delete(`/api/dashboard/template/${id}`) }
