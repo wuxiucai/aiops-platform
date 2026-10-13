@@ -26,6 +26,7 @@
               <span style="color:#98a1b3; font-size:11px; margin-left:6px">{{ i.indexPattern }}</span>
             </el-option>
           </el-select>
+          <el-button style="margin-left: 8px" @click="openIndexMapping" v-if="datasourceId">＋ 索引映射</el-button>
         </el-form-item>
         <el-form-item label="时间范围">
           <el-date-picker
@@ -123,6 +124,72 @@
     <!-- DSL 展示 -->
     <el-dialog v-model="dslVisible" title="DSL 查询（论文截图用）" width="900px" destroy-on-close>
       <pre class="dsl-box">{{ dsl }}</pre>
+    </el-dialog>
+
+    <!-- 新增索引映射：为当前数据源对接任意索引 -->
+    <el-dialog v-model="mappingVisible" title="新增索引映射" width="680px" destroy-on-close>
+      <el-alert
+        type="info"
+        :closable="false"
+        title="为当前数据源配置要检索的索引及字段映射。选好索引模式后点【探测字段】可自动填充映射。"
+        style="margin-bottom: 14px"
+      />
+      <el-form :model="mappingForm" label-width="110px">
+        <el-form-item label="索引模式" required>
+          <el-select
+            v-model="mappingForm.indexPattern"
+            filterable
+            allow-create
+            default-first-option
+            placeholder="从集群实时索引中选择，或手填通配模式"
+            style="width: 100%"
+            :loading="indicesLoading"
+          >
+            <el-option v-for="i in clusterIndices" :key="i.index" :value="i.index" :label="i.index">
+              <span>{{ i.index }}</span>
+              <span style="color:#98a1b3; font-size:11px; margin-left:8px">{{ i.docsCount }} docs</span>
+            </el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="映射名称" required>
+          <el-input v-model="mappingForm.name" placeholder="如：ds-logs 业务日志" />
+        </el-form-item>
+        <el-form-item label="">
+          <el-button type="primary" plain size="small" :loading="probing" @click="probeFields" :disabled="!mappingForm.indexPattern">
+            探测字段并自动填充
+          </el-button>
+          <span v-if="probedFields.length" style="color:#98a1b3; font-size:12px; margin-left:8px">共 {{ probedFields.length }} 个字段</span>
+        </el-form-item>
+        <el-form-item label="时间字段" required>
+          <el-select v-model="mappingForm.timeField" filterable allow-create default-first-option style="width: 100%">
+            <el-option v-for="f in probedFields" :key="f.name" :value="f.name" :label="`${f.name} (${f.type})${f.suggestedRole === 'time' ? ' ← 建议时间' : ''}`" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="消息字段" required>
+          <el-select v-model="mappingForm.messageField" filterable allow-create default-first-option style="width: 100%">
+            <el-option v-for="f in probedFields" :key="f.name" :value="f.name" :label="`${f.name} (${f.type})${f.suggestedRole === 'message' ? ' ← 建议消息' : ''}`" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="级别字段">
+          <el-select v-model="mappingForm.levelField" filterable allow-create default-first-option style="width: 100%" clearable>
+            <el-option v-for="f in probedFields" :key="f.name" :value="f.name" :label="`${f.name} (${f.type})${f.suggestedRole === 'level' ? ' ← 建议级别' : ''}`" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="服务字段">
+          <el-select v-model="mappingForm.serviceField" filterable allow-create default-first-option style="width: 100%" clearable>
+            <el-option v-for="f in probedFields" :key="f.name" :value="f.name" :label="`${f.name} (${f.type})${f.suggestedRole === 'service' ? ' ← 建议服务' : ''}`" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="TraceId 字段">
+          <el-select v-model="mappingForm.traceIdField" filterable allow-create default-first-option style="width: 100%" clearable>
+            <el-option v-for="f in probedFields" :key="f.name" :value="f.name" :label="`${f.name} (${f.type})${f.suggestedRole === 'trace' ? ' ← 建议 TraceId' : ''}`" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="mappingVisible = false">取消</el-button>
+        <el-button type="primary" :loading="mappingSaving" @click="saveMapping">保存映射</el-button>
+      </template>
     </el-dialog>
 
     <!-- 上下文 -->
@@ -459,6 +526,92 @@ function levelType(l) {
   if (l === 'WARN') return 'warning'
   if (l === 'DEBUG' || l === 'TRACE') return 'info'
   return 'success'
+}
+
+// ============ 索引映射管理（为任意数据源对接任意索引） ============
+const mappingVisible = ref(false)
+const mappingSaving = ref(false)
+const indicesLoading = ref(false)
+const probing = ref(false)
+const clusterIndices = ref([])
+const probedFields = ref([])
+const mappingForm = ref(defaultMappingForm())
+
+function defaultMappingForm () {
+  return {
+    datasourceId: null, indexPattern: '', name: '',
+    timeField: '@timestamp', messageField: 'message',
+    levelField: 'level', serviceField: 'service', traceIdField: 'traceId'
+  }
+}
+
+function openIndexMapping () {
+  mappingForm.value = { ...defaultMappingForm(), datasourceId: datasourceId.value }
+  probedFields.value = []
+  clusterIndices.value = []
+  mappingVisible.value = true
+  loadIndices()
+}
+
+async function loadIndices () {
+  indicesLoading.value = true
+  try {
+    clusterIndices.value = await request.get(`/api/es/datasource/${datasourceId.value}/indices`) || []
+  } catch (e) { /* 拦截器已弹错 */ } finally {
+    indicesLoading.value = false
+  }
+}
+
+/** 探测字段：后端按启发式给出 suggestedRole（time/message/level/service/trace），据此自动填充映射 */
+async function probeFields () {
+  probing.value = true
+  try {
+    probedFields.value = await request.get(`/api/es/datasource/${datasourceId.value}/fields`, {
+      params: { indexPattern: mappingForm.value.indexPattern }
+    }) || []
+    const byRole = {}
+    probedFields.value.forEach(f => { if (f.suggestedRole && !byRole[f.suggestedRole]) byRole[f.suggestedRole] = f.name })
+    const m = mappingForm.value
+    if (byRole.time) m.timeField = byRole.time
+    if (byRole.message) m.messageField = byRole.message
+    if (byRole.level) m.levelField = byRole.level
+    if (byRole.service) m.serviceField = byRole.service
+    if (byRole.trace) m.traceIdField = byRole.trace
+    if (!m.name) m.name = m.indexPattern
+  } catch (e) { /* 拦截器已弹错 */ } finally {
+    probing.value = false
+  }
+}
+
+async function saveMapping () {
+  const m = mappingForm.value
+  if (!m.indexPattern || !m.timeField || !m.messageField) {
+    ElMessage.warning('索引模式、时间字段、消息字段必填')
+    return
+  }
+  if (!m.name) m.name = m.indexPattern
+  mappingSaving.value = true
+  try {
+    await request.post('/api/es/index-config', {
+      datasourceId: m.datasourceId,
+      name: m.name,
+      indexPattern: m.indexPattern,
+      timeField: m.timeField,
+      messageField: m.messageField,
+      levelField: m.levelField,
+      serviceField: m.serviceField,
+      traceIdField: m.traceIdField,
+      defaultTimeRangeHours: 24,
+      enabled: 1
+    })
+    ElMessage.success('索引映射已保存')
+    mappingVisible.value = false
+    await loadIndexConfigs()
+    loadServiceOptions()
+    onSearch()
+  } catch (e) { /* 拦截器已弹错 */ } finally {
+    mappingSaving.value = false
+  }
 }
 
 // ============ 时间快捷项 ============
