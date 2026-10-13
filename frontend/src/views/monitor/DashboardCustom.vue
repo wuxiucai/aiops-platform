@@ -74,6 +74,23 @@
               <el-option v-for="g in flatGroups" :key="g.id" :value="g.id" :label="g.name"/>
             </el-select>
             <el-button size="small" @click="load" :loading="loading">刷新</el-button>
+            <el-dropdown @command="createFromPreset" style="margin: 0 4px">
+              <el-button size="small" type="warning" plain :loading="creatingPreset">一键模板</el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="duty">值班总览（告警 + 事件）</el-dropdown-item>
+                  <el-dropdown-item command="capacity">容量观察（主机负载曲线）</el-dropdown-item>
+                  <el-dropdown-item command="postmortem">告警复盘（Top 告警 + 热模板）</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+            <el-tooltip content="联动后，曲线/Top告警类 widget 统一使用该时间范围（覆盖各自配置）" placement="top">
+              <el-select v-model="globalHours" size="small" style="width: 130px" placeholder="时间联动: 关" clearable>
+                <el-option :value="1" label="联动: 近 1 小时"/>
+                <el-option :value="6" label="联动: 近 6 小时"/>
+                <el-option :value="24" label="联动: 近 24 小时"/>
+              </el-select>
+            </el-tooltip>
             <el-button v-if="mode==='edit'" size="small" type="primary" @click="save" :loading="saving">保存布局</el-button>
             <el-button v-if="mode==='edit'" size="small" @click="addWidget">添加 Widget</el-button>
             <el-button size="small" type="success" @click="setDefault" :disabled="!current || current.isDefault === 1">设为默认</el-button>
@@ -105,7 +122,7 @@
                   <el-button v-if="mode==='edit'" size="small" link type="danger" @click="removeWidget(item.i)">✕</el-button>
                 </div>
                 <div class="widget-body">
-                  <WidgetRenderer :w="getWidget(item.i)" />
+                  <WidgetRenderer :w="getWidget(item.i)" :global-hours="globalHours" />
                 </div>
                 <!-- 右下角缩放手柄 -->
                 <div v-if="mode==='edit'" class="resize-handle"
@@ -260,6 +277,8 @@ const router = useRouter()
 const mode = ref('view')
 const loading = ref(false)
 const saving = ref(false)
+const creatingPreset = ref(false)
+const globalHours = ref(null)  // null=不联动；1/6/24=全局时间范围联动
 const current = ref(null)
 const layout = ref([])
 const addVisible = ref(false)
@@ -466,6 +485,87 @@ async function save () {
     await load()
   } catch (e) { /* 拦截器已弹错 */ } finally {
     saving.value = false
+  }
+}
+
+/* ========== 一键模板：从预设场景生成完整大盘，不必从空白开始 ========== */
+const PRESETS = {
+  duty: {
+    name: '值班总览',
+    widgets: (H) => [
+      { widgetType: 'stat_card', title: '待处理告警', config: { refType: 'alert_pending_count' }, sort: 0 },
+      { widgetType: 'stat_card', title: '进行中事件', config: { refType: 'incident_open_count' }, sort: 1 },
+      { widgetType: 'top_alert', title: 'Top 告警 (24h)', config: { limit: 8, timeRangeHours: 24 }, sort: 2 },
+      { widgetType: 'incident_list', title: '开放事件', config: { status: 'open', limit: 8 }, sort: 3 }
+    ],
+    layout: [
+      { idx: 0, x: 0, y: 0, w: 6, h: 2 },
+      { idx: 1, x: 6, y: 0, w: 6, h: 2 },
+      { idx: 2, x: 0, y: 2, w: 6, h: 4 },
+      { idx: 3, x: 6, y: 2, w: 6, h: 4 }
+    ]
+  },
+  capacity: {
+    name: '容量观察',
+    widgets: (H) => [
+      { widgetType: 'metric_compare', title: '主机 CPU / 内存对比', config: { targetId: H, metricKeys: ['cpu.usage', 'mem.usage'], timeRangeHours: 6 }, sort: 0 },
+      { widgetType: 'line_chart', title: 'CPU 使用率趋势', config: { targetId: H, metricKey: 'cpu.usage', timeRangeHours: 24 }, sort: 1 },
+      { widgetType: 'line_chart', title: '内存使用率趋势', config: { targetId: H, metricKey: 'mem.usage', timeRangeHours: 24 }, sort: 2 }
+    ],
+    layout: [
+      { idx: 0, x: 0, y: 0, w: 12, h: 5 },
+      { idx: 1, x: 0, y: 5, w: 6, h: 5 },
+      { idx: 2, x: 6, y: 5, w: 6, h: 5 }
+    ]
+  },
+  postmortem: {
+    name: '告警复盘',
+    widgets: (H) => [
+      { widgetType: 'top_alert', title: '24h 告警分布', config: { limit: 10, timeRangeHours: 24 }, sort: 0 },
+      { widgetType: 'incident_list', title: '开放事件列表', config: { status: 'open', limit: 10 }, sort: 1 },
+      { widgetType: 'top_template', title: '热点日志模板', config: { limit: 10 }, sort: 2 }
+    ],
+    layout: [
+      { idx: 0, x: 0, y: 0, w: 6, h: 6 },
+      { idx: 1, x: 6, y: 0, w: 6, h: 6 },
+      { idx: 2, x: 0, y: 6, w: 12, h: 5 }
+    ]
+  }
+}
+
+async function createFromPreset (key) {
+  const preset = PRESETS[key]
+  if (!preset || creatingPreset.value) return
+  creatingPreset.value = true
+  try {
+    // 预设里容量观察需要一台主机目标
+    if (!allTargets.value.length) await loadTargetsAndMetrics()
+    const host = allTargets.value.find(t => t.targetType === 'host')
+    if (!host) { ElMessage.warning('请先在监控对象中创建主机目标'); return }
+
+    // 1. 建空模板 → 2. 写入 widgets → 3. 按标题回取真实 widgetId → 4. 写入 layout
+    const created = await request.post('/api/dashboard/template', { name: preset.name })
+    const id = created?.id
+    if (!id) { ElMessage.error('模板创建失败'); return }
+    await saveTemplate(id, { name: preset.name, widgets: preset.widgets(host.id) })
+
+    const refreshed = await getTemplate(id)
+    const realWidgets = Array.isArray(refreshed?.widgets) ? refreshed.widgets : []
+    const idByTitle = {}
+    realWidgets.forEach(w => { idByTitle[w.title] = w.id })
+    const layoutConfig = preset.layout
+      .map(p => {
+        const wid = idByTitle[realWidgets[p.idx]?.title]
+        return wid != null ? { widgetId: wid, x: p.x, y: p.y, w: p.w, h: p.h } : null
+      })
+      .filter(Boolean)
+    await saveTemplate(id, { layoutConfig })
+
+    ElMessage.success(`已生成「${preset.name}」模板`)
+    await loadTemplates()
+    await openTemplate(id)
+  } catch (e) { /* 拦截器已弹错 */ } finally {
+    creatingPreset.value = false
   }
 }
 

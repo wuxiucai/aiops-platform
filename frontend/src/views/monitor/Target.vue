@@ -133,33 +133,75 @@
         </el-descriptions>
       </el-card>
 
-      <!-- 趋势图：host 显示 cpu/mem；service 显示 jvm.heap.usage / app.rt.avg -->
+      <!-- 单机画像：指标画像 / Agent 信息 / 关联告警 -->
       <el-card shadow="hover" style="margin-top: 16px" v-if="currentTarget">
-      <template #header>
-        <div style="display:flex; justify-content:space-between; align-items:center; gap: 12px">
-          <span>{{ currentTarget.name }} · 时序趋势</span>
-          <div style="display:flex; align-items:center; gap:8px">
-            <span style="color:#909399; font-size:12px">时间范围（精确到秒）：</span>
-            <el-date-picker
-              v-model="customTimeRange"
-              type="datetimerange"
-              range-separator="至"
-              start-placeholder="2026-10-01 00:00:00"
-              end-placeholder="2026-10-02 23:59:59"
-              format="YYYY-MM-DD HH:mm:ss"
-              value-format="YYYY-MM-DD HH:mm:ss"
-              :default-time="[new Date(0,0,0,0,0,0), new Date(0,0,0,23,59,59)]"
-              style="width: 380px"
-              size="small"
-              clearable
-              @change="onCustomTimeChange"
-            />
-            <el-button size="small" @click="resetTimeRange">重置为近 1 小时</el-button>
-          </div>
-        </div>
-      </template>
-      <BaseChart :option="trendOption" height="360px" v-loading="chartLoading" />
-    </el-card>
+        <el-tabs v-model="activeTab" @tab-change="onTabChange">
+          <el-tab-pane label="指标画像" name="metrics">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:12px; flex-wrap:wrap">
+              <el-checkbox-group v-model="selectedMetrics" size="small" @change="loadTrend">
+                <el-checkbox-button v-for="k in metricOptionsFor(currentTarget)" :key="k" :value="k">
+                  {{ METRIC_LABEL[k] || k }}
+                </el-checkbox-button>
+              </el-checkbox-group>
+              <div style="display:flex; align-items:center; gap:8px">
+                <span style="color:#909399; font-size:12px">时间范围（精确到秒）：</span>
+                <el-date-picker
+                  v-model="customTimeRange"
+                  type="datetimerange"
+                  range-separator="至"
+                  start-placeholder="2026-10-01 00:00:00"
+                  end-placeholder="2026-10-02 23:59:59"
+                  format="YYYY-MM-DD HH:mm:ss"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  :default-time="[new Date(0,0,0,0,0,0), new Date(0,0,0,23,59,59)]"
+                  style="width: 380px"
+                  size="small"
+                  clearable
+                  @change="onCustomTimeChange"
+                />
+                <el-button size="small" @click="resetTimeRange">重置为近 1 小时</el-button>
+              </div>
+            </div>
+            <BaseChart :option="trendOption" height="360px" v-loading="chartLoading" />
+          </el-tab-pane>
+
+          <el-tab-pane label="Agent 信息" name="agent">
+            <el-descriptions :column="3" border>
+              <el-descriptions-item label="在线状态">
+                <el-tag :type="agentOnline ? 'success' : 'info'" size="small">{{ agentOnline ? '在线' : '离线' }}</el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="最近心跳">{{ currentTarget.lastHeartbeat || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="操作系统">{{ currentTarget.os || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="地址">{{ currentTarget.ip }}{{ currentTarget.port ? ':' + currentTarget.port : '' }}</el-descriptions-item>
+              <el-descriptions-item label="目标 URL">{{ currentTarget.targetUrl || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="Agent 安装包">
+                <a :href="`/api/agent/download/${currentTarget.id}`" target="_blank" style="color:#4361ee">下载 aiops-agent.jar</a>
+              </el-descriptions-item>
+            </el-descriptions>
+            <div class="agent-tip">
+              Agent 以 X-Agent-Key 鉴权上报心跳（默认 30s 一次），最近心跳在 2 分钟内判定为在线；
+              上线后「监控对象」列表与大盘健康矩阵的在线状态会自动更新。
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane :label="`关联告警${alertTotal > 0 ? ' (' + alertTotal + ')' : ''}`" name="alerts">
+            <el-table :data="alertRows" size="small" stripe v-loading="alertLoading">
+              <el-table-column prop="level" label="级别" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="row.level === 'CRITICAL' ? 'danger' : (row.level === 'WARN' ? 'warning' : 'info')" size="small">
+                    {{ row.level }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="title" label="告警内容" min-width="260" show-overflow-tooltip/>
+              <el-table-column prop="status" label="状态" width="110"/>
+              <el-table-column prop="lastTriggerTime" label="最近触发" width="170"/>
+              <el-table-column prop="triggerCount" label="触发次数" width="90" align="right"/>
+            </el-table>
+            <el-empty v-if="!alertLoading && alertRows.length === 0" description="该对象暂无告警记录" :image-size="60"/>
+          </el-tab-pane>
+        </el-tabs>
+      </el-card>
     </div><!-- /.target-main -->
 
     <!-- 编辑监控对象 dialog -->
@@ -281,6 +323,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import BaseChart from '../../components/BaseChart.vue'
 import RefreshSelector from '../../components/RefreshSelector.vue'
 import { listTarget, queryMetric } from '../../api/monitor'
+import { getRecordPage } from '../../api/alert'
 import request from '../../utils/request'
 import { useUserStore } from '../../store/user'
 import { minutesAgo, nowString } from '../../utils/time'
@@ -355,10 +398,12 @@ function onGroupChange () {
   loadTrend()
 }
 
-// 从树选中 target：刷新趋势图
+// 从树选中 target：重置指标选择 + 刷新趋势图；告警页签打开时同步刷新
 function onSelectTarget (id) {
   currentTargetId.value = id
+  selectedMetrics.value = defaultMetricsFor(currentTarget.value)
   loadTrend()
+  if (activeTab.value === 'alerts') loadAlerts()
 }
 
 function openGroupForm (row) {
@@ -567,10 +612,57 @@ function onSelectGroup (gid) {
   onGroupChange()
 }
 
-/** 每个目标展示的指标 key（按任务书 v2 §2.5 / M2 审查点选） */
-function metricKeysFor(t) {
+/** 画像 Tab 可选指标（按任务书 v2 §2.5 / M2 审查点选）+ 显示名 */
+const METRIC_LABEL = {
+  'cpu.usage': 'CPU 使用率',
+  'mem.usage': '内存使用率',
+  'disk.usage': '磁盘使用率',
+  'net.conn.count': '网络连接数',
+  'jvm.heap.usage': 'JVM 堆使用率',
+  'app.rt.avg': '平均响应时间',
+  'app.qps': 'QPS',
+  'jvm.thread.count': 'JVM 线程数'
+}
+function metricOptionsFor (t) {
+  if (t?.targetType === 'host') return ['cpu.usage', 'mem.usage', 'disk.usage', 'net.conn.count']
+  if (t?.targetType === 'prometheus') return ['cpu.usage', 'mem.usage']
+  return ['jvm.heap.usage', 'app.rt.avg', 'app.qps', 'jvm.thread.count']
+}
+function defaultMetricsFor (t) {
   if (t?.targetType === 'host') return ['cpu.usage', 'mem.usage']
+  if (t?.targetType === 'prometheus') return ['cpu.usage', 'mem.usage']
   return ['jvm.heap.usage', 'app.rt.avg']
+}
+
+/* ============ 单机画像 tabs ============ */
+const activeTab = ref('metrics')
+const selectedMetrics = ref(['cpu.usage', 'mem.usage'])
+const alertRows = ref([])
+const alertTotal = ref(0)
+const alertLoading = ref(false)
+
+/** Agent 在线判定：与后端 AgentController 一致，最近心跳 2 分钟内 */
+const agentOnline = computed(() => {
+  const t = currentTarget.value
+  if (!t?.lastHeartbeat) return false
+  return (Date.now() - new Date(t.lastHeartbeat.replace(' ', 'T')).getTime()) < 2 * 60_000
+})
+
+async function loadAlerts () {
+  const t = currentTarget.value
+  if (!t) { alertRows.value = []; alertTotal.value = 0; return }
+  alertLoading.value = true
+  try {
+    const p = await getRecordPage({ current: 1, size: 10, targetId: t.id })
+    alertRows.value = p.records || []
+    alertTotal.value = p.total || 0
+  } catch (e) { /* 拦截器已弹错 */ } finally {
+    alertLoading.value = false
+  }
+}
+
+function onTabChange (name) {
+  if (name === 'alerts') loadAlerts()
 }
 
 async function loadTargets() {
@@ -580,6 +672,7 @@ async function loadTargets() {
     const wanted = Number(route.query.targetId)
     const hit = wanted && targets.value.find(t => t.id === wanted)
     currentTargetId.value = hit ? wanted : targets.value[0].id
+    selectedMetrics.value = defaultMetricsFor(currentTarget.value)
     loadTrend()
   }
 }
@@ -610,7 +703,7 @@ async function loadTrend() {
     }
     const data = await queryMetric({
       targetIds: [t.id],
-      metricKeys: metricKeysFor(t),
+      metricKeys: selectedMetrics.value.length ? selectedMetrics.value : defaultMetricsFor(t),
       startTime,
       endTime,
       aggregation: 'avg',
@@ -654,6 +747,17 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 
 <style scoped>
 .header-bar { display: flex; justify-content: space-between; align-items: center }
+
+/* Agent 信息 tab 说明文字 */
+.agent-tip {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #98a1b3;
+  background: #f7f9fc;
+  border: 1px solid #e9edf4;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
 
 /* ============ 左树右内容布局 ============ */
 .target-page {

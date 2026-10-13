@@ -12,13 +12,17 @@
 import { ref, onMounted, watch } from 'vue'
 import request from '../../../utils/request'
 
-const props = defineProps({ config: { type: Object, required: true } })
+const props = defineProps({
+  config: { type: Object, required: true },
+  globalHours: { type: Number, required: false, default: null }
+})
 const rows = ref([])
 
 async function load () {
   const params = {
     limit: props.config.limit || 5,
-    hours: props.config.timeRangeHours || 24
+    // 全局时间联动优先；未联动时用 widget 自身配置
+    hours: (props.globalHours ?? props.config.timeRangeHours) || 24
   }
   if (props.config.targetId) params.targetId = props.config.targetId
   const r = await request.get('/api/dashboard-stat/top-alert', { params })
@@ -26,5 +30,5 @@ async function load () {
 }
 
 onMounted(load)
-watch(() => [props.config.targetId], load)
+watch(() => [props.config.targetId, props.globalHours], load)
 </script>

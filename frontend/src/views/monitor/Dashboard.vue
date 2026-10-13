@@ -207,6 +207,29 @@
       </template>
       <BaseChart :option="trendOption" height="360px" />
     </el-card>
+
+    <!-- 活跃告警：全平台 pending 告警一览，随自动刷新同步 -->
+    <el-card shadow="hover" style="margin-top: 16px">
+      <template #header>
+        <div class="trend-header">
+          <span>活跃告警 <span class="matrix-sub">全平台待处理告警（{{ alertRows.length ? '最新 ' + alertRows.length + ' 条' : '暂无' }}）</span></span>
+          <el-button size="small" link type="primary" @click="$router.push('/alert/record')">查看全部 →</el-button>
+        </div>
+      </template>
+      <el-table :data="alertRows" size="small" stripe v-loading="alertLoading" empty-text="当前没有待处理告警">
+        <el-table-column prop="level" label="级别" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.level === 'CRITICAL' ? 'danger' : (row.level === 'WARN' ? 'warning' : 'info')" size="small">
+              {{ row.level }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="title" label="告警内容" min-width="320" show-overflow-tooltip/>
+        <el-table-column prop="targetName" label="监控对象" width="140" show-overflow-tooltip/>
+        <el-table-column prop="triggerCount" label="触发次数" width="90" align="right"/>
+        <el-table-column prop="lastTriggerTime" label="最近触发" width="170"/>
+      </el-table>
+    </el-card>
   </div>
 </template>
 
@@ -217,12 +240,15 @@ import BaseChart from '../../components/BaseChart.vue'
 import RefreshSelector from '../../components/RefreshSelector.vue'
 import { queryMetric } from '../../api/monitor'
 import { getStatOverview, getHealthMatrix } from '../../api/dashboard'
+import { getRecordPage } from '../../api/alert'
 import { minutesAgo, nowString } from '../../utils/time'
 
 const router = useRouter()
 const ov = ref({})
 const matrix = ref([])
 const trendOption = ref({})
+const alertRows = ref([])
+const alertLoading = ref(false)
 let timer = null
 
 // 自动刷新间隔（毫秒），0=暂停。localStorage 记忆上次选择
@@ -232,7 +258,7 @@ const refreshMs = ref(Number(localStorage.getItem(REFRESH_KEY)) || 30000)
 function startTimer () {
   if (timer) { clearInterval(timer); timer = null }
   if (refreshMs.value > 0) {
-    timer = setInterval(() => { loadOverview(); loadMatrix().then(loadTrend) }, refreshMs.value)
+    timer = setInterval(() => { loadOverview(); loadMatrix().then(loadTrend); loadAlerts() }, refreshMs.value)
   }
 }
 function onRefreshChange (ms) {
@@ -291,6 +317,17 @@ async function loadOverview () {
 
 async function loadMatrix () {
   matrix.value = await getHealthMatrix()
+}
+
+/** 活跃告警：pending 前若干条（pageWithNames 自带 targetName/ruleName） */
+async function loadAlerts () {
+  alertLoading.value = true
+  try {
+    const p = await getRecordPage({ current: 1, size: 8, status: 'pending' })
+    alertRows.value = p.records || []
+  } catch (e) { /* 拦截器已弹错 */ } finally {
+    alertLoading.value = false
+  }
 }
 
 /** 全 host 聚合曲线：取所有主机指标序列，按时间桶在前端求均值 */
@@ -375,6 +412,7 @@ async function loadTrend () {
 
 onMounted(async () => {
   loadOverview()
+  loadAlerts()
   await loadMatrix()
   loadTrend()
   startTimer()

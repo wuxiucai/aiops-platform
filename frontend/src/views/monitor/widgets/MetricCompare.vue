@@ -3,18 +3,23 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import request from '../../../utils/request'
 import * as echarts from 'echarts'
 
-const props = defineProps({ config: { type: Object, required: true } })
+const props = defineProps({
+  config: { type: Object, required: true },
+  globalHours: { type: Number, required: false, default: null }
+})
 const chartRef = ref(null)
 let chart = null
+let resizeObserver = null
 
 async function fetchData () {
   const cfg = props.config
   if (!cfg?.targetId || !Array.isArray(cfg.metricKeys) || cfg.metricKeys.length === 0) return
-  const hours = cfg.timeRangeHours || 1
+  // 全局时间联动优先；未联动时用 widget 自身配置
+  const hours = (props.globalHours ?? cfg.timeRangeHours) || 1
   const body = {
     targetIds: [cfg.targetId],
     metricKeys: cfg.metricKeys,
@@ -74,11 +79,17 @@ onMounted(() => {
   fetchData()
   // 容器大小变化时让 echarts 重新渲染
   if (window.ResizeObserver) {
-    const ro = new ResizeObserver(() => {
+    resizeObserver = new ResizeObserver(() => {
       if (chart) chart.resize()
     })
-    if (chartRef.value) ro.observe(chartRef.value)
+    if (chartRef.value) resizeObserver.observe(chartRef.value)
   }
 })
-watch(() => [props.config.targetId, props.config.metricKeys, props.config.timeRangeHours], fetchData)
+
+onBeforeUnmount(() => {
+  // 修复审查 #27：组件销毁时释放 echarts 实例与观察器
+  if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null }
+  if (chart) { chart.dispose(); chart = null }
+})
+watch(() => [props.config.targetId, props.config.metricKeys, props.config.timeRangeHours, props.globalHours], fetchData)
 </script>
