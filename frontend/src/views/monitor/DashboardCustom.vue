@@ -100,7 +100,7 @@
         <el-card shadow="never" v-loading="loading">
           <!-- vue-grid-layout：拖拽 + 调整大小 -->
           <!-- 绝对定位 + 手动鼠标拖拽（稳定可靠） -->
-          <div v-if="layout.length > 0" class="dash-grid-abs">
+          <div v-if="layout.length > 0" class="dash-grid-abs" :style="{ height: gridHeight + 'px' }">
             <div
               v-for="item in layout"
               :key="item.i"
@@ -323,6 +323,14 @@ const groupDialogVisible = ref(false)
 const groupForm = ref({ id: null, name: '', parentId: 0 })
 
 const widgets = computed(() => current.value?.widgets || [])
+
+/* 网格容器高度：子项全是绝对定位，必须显式撑高，否则后面的行会被裁切/看起来重叠。
+   高度 = 最深的 (y + h) * 单元高 80px + 底部留白 */
+const gridHeight = computed(() => {
+  if (!layout.value.length) return 600
+  const maxBottom = Math.max(...layout.value.map(it => (it.y || 0) + (it.h || 4)))
+  return maxBottom * 80 + 16
+})
 
 function getWidget (i) {
   // i 可能是 string （grid item) 或 number (widget id)

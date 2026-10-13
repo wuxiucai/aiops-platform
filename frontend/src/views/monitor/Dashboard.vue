@@ -183,7 +183,10 @@
              :title="cellTooltip(cell)"
              @click="gotoTarget(cell)">
           <div class="cell-name" :title="cell.name">{{ cell.name }}</div>
-          <div class="cell-type">{{ typeLabel(cell.targetType) }}</div>
+          <div class="cell-type">
+            {{ typeLabel(cell.targetType) }}
+            <span v-if="!cell.agentOnline" class="cell-offline-inline">· 离线</span>
+          </div>
           <div class="cell-metrics">
             <span>CPU {{ cell.cpu != null ? cell.cpu + '%' : '-' }}</span>
             <span>内存 {{ cell.mem != null ? cell.mem + '%' : '-' }}</span>
@@ -191,7 +194,6 @@
           <div v-if="cell.pendingAlerts > 0" class="cell-badge" :class="{ crit: cell.criticalAlerts > 0 }">
             {{ cell.pendingAlerts }}
           </div>
-          <div v-if="!cell.agentOnline" class="cell-offline">离线</div>
         </div>
         <div v-if="!matrix.length" class="matrix-empty">暂无监控对象</div>
       </div>
@@ -628,15 +630,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
   font-weight: 600;
 }
 .cell-badge.crit { background: #f4496a; }
-.cell-offline {
-  position: absolute;
-  bottom: 10px;
-  right: 10px;
-  font-size: 10.5px;
-  color: #98a1b3;
-  border: 1px solid #d3d9e5;
-  border-radius: 4px;
-  padding: 1px 5px;
-}
+/* 离线标识：行内显示在类型旁，避免绝对定位压住底部指标行 */
+.cell-offline-inline { color: #e6a23c; font-weight: 600; }
 .matrix-empty { grid-column: 1 / -1; text-align: center; color: #97a1b5; font-size: 13px; padding: 30px 0; }
 </style>

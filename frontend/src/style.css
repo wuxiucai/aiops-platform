@@ -82,6 +82,21 @@ html, body, #app {
   background: linear-gradient(135deg, #3a55d8 0%, #4c6bf5 100%);
   box-shadow: 0 4px 12px rgba(67, 97, 238, 0.4);
 }
+/* 修复：上面 .el-button--primary 的实心渐变会把 plain（浅色）变体一并覆盖，
+   导致 plain 按钮深蓝底 + 蓝字、文字不可读。这里显式恢复 plain 的浅色外观。 */
+.el-button--primary.is-plain {
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-7);
+  box-shadow: none;
+  color: var(--el-color-primary);
+}
+.el-button--primary.is-plain:hover,
+.el-button--primary.is-plain:focus {
+  background: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(67, 97, 238, 0.3);
+}
 
 /* 输入框聚焦光晕 */
 .el-input__wrapper.is-focus,
