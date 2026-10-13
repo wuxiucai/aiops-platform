@@ -253,4 +253,78 @@ public class DashboardStatController {
     private static long nz(Long v) { return v == null ? 0L : v; }
 
     private static double round1(double v) { return Math.round(v * 10.0) / 10.0; }
+
+    /**
+     * 目标健康矩阵：每个监控对象一行，返回最新采样（15min 内）的 CPU/内存、
+     * 活跃告警数（含 CRITICAL 计数）、Agent 是否在线（2min 心跳，与 overview 同口径）。
+     * 颜色分档由前端计算：红 = CRITICAL 告警或任一指标 >=90；橙 = 有活跃告警或 >=80/85；绿 = 正常；灰 = 无数据。
+     */
+    @Operation(summary = "目标健康矩阵")
+    @RequirePerm("monitor:dashboard:list")
+    @GetMapping("/health-matrix")
+    public Result<List<Map<String, Object>>> healthMatrix() {
+        List<Map<String, Object>> targets = jdbc.queryForList(
+                "SELECT id, name, target_type AS targetType FROM monitor_target WHERE deleted=0 ORDER BY id");
+
+        // 每 target 最新一条 cpu/mem 采样（15min 窗口内）
+        String latestSql = """
+                SELECT m.target_id AS targetId, m.metric_key AS metricKey, m.metric_value AS v
+                FROM metric_data m
+                JOIN (SELECT target_id, metric_key, MAX(collect_time) AS mt
+                        FROM metric_data
+                       WHERE metric_key IN ('cpu.usage','mem.usage')
+                         AND collect_time >= DATE_SUB(NOW(), INTERVAL 15 MINUTE)
+                       GROUP BY target_id, metric_key) l
+                  ON l.target_id = m.target_id AND l.metric_key = m.metric_key AND l.mt = m.collect_time
+                """;
+        Map<Long, Double> cpuMap = new HashMap<>();
+        Map<Long, Double> memMap = new HashMap<>();
+        for (Map<String, Object> r : jdbc.queryForList(latestSql)) {
+            if (r.get("v") == null || r.get("targetId") == null) continue;
+            long tid = ((Number) r.get("targetId")).longValue();
+            double v = ((Number) r.get("v")).doubleValue();
+            if ("cpu.usage".equals(r.get("metricKey"))) cpuMap.put(tid, v);
+            else if ("mem.usage".equals(r.get("metricKey"))) memMap.put(tid, v);
+        }
+
+        // 活跃告警按 target 聚合
+        Map<Long, long[]> alertMap = new HashMap<>(); // [pendingCnt, criticalCnt]
+        for (Map<String, Object> r : jdbc.queryForList(
+                "SELECT target_id AS tid, COUNT(*) AS cnt, " +
+                        "SUM(CASE WHEN level='CRITICAL' THEN 1 ELSE 0 END) AS criticalCnt " +
+                        "FROM alert_record WHERE status='pending' AND target_id IS NOT NULL GROUP BY target_id")) {
+            if (r.get("tid") == null) continue;
+            long tid = ((Number) r.get("tid")).longValue();
+            long cnt = r.get("cnt") == null ? 0 : ((Number) r.get("cnt")).longValue();
+            long crit = r.get("criticalCnt") == null ? 0 : ((Number) r.get("criticalCnt")).longValue();
+            alertMap.put(tid, new long[]{cnt, crit});
+        }
+
+        // Agent 在线（2min 心跳）
+        java.util.Set<Long> onlineIds = new java.util.HashSet<>();
+        for (Map<String, Object> r : jdbc.queryForList(
+                "SELECT id FROM monitor_target WHERE deleted=0 " +
+                        "AND last_heartbeat IS NOT NULL AND last_heartbeat >= DATE_SUB(NOW(), INTERVAL 2 MINUTE)")) {
+            onlineIds.add(((Number) r.get("id")).longValue());
+        }
+
+        List<Map<String, Object>> out = new java.util.ArrayList<>();
+        for (Map<String, Object> t : targets) {
+            long tid = ((Number) t.get("id")).longValue();
+            Map<String, Object> row = new HashMap<>();
+            row.put("targetId", tid);
+            row.put("name", t.get("name"));
+            row.put("targetType", t.get("targetType"));
+            Double cpu = cpuMap.get(tid);
+            Double mem = memMap.get(tid);
+            row.put("cpu", cpu == null ? null : round1(cpu));
+            row.put("mem", mem == null ? null : round1(mem));
+            long[] al = alertMap.getOrDefault(tid, new long[]{0, 0});
+            row.put("pendingAlerts", al[0]);
+            row.put("criticalAlerts", al[1]);
+            row.put("agentOnline", onlineIds.contains(tid));
+            out.add(row);
+        }
+        return Result.ok(out);
+    }
 }

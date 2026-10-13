@@ -275,6 +275,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, reactive, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { Plus, Setting, Folder, FolderOpened, DocumentRemove, ArrowRight, Monitor, Connection, DataLine } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import BaseChart from '../../components/BaseChart.vue'
@@ -283,6 +284,8 @@ import { listTarget, queryMetric } from '../../api/monitor'
 import request from '../../utils/request'
 import { useUserStore } from '../../store/user'
 import { minutesAgo, nowString } from '../../utils/time'
+
+const route = useRoute()
 
 const userStore = useUserStore()
 const hasPerm = (code) => userStore.hasPerm(code)
@@ -573,7 +576,10 @@ function metricKeysFor(t) {
 async function loadTargets() {
   targets.value = await listTarget()
   if (targets.value.length) {
-    currentTargetId.value = targets.value[0].id
+    // 支持从监控大盘健康矩阵下钻：?targetId=x 自动定位（无效 id 回退第一台）
+    const wanted = Number(route.query.targetId)
+    const hit = wanted && targets.value.find(t => t.id === wanted)
+    currentTargetId.value = hit ? wanted : targets.value[0].id
     loadTrend()
   }
 }

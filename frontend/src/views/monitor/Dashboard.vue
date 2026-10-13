@@ -164,11 +164,44 @@
       </el-col>
     </el-row>
 
-    <!-- 近 1h 趋势图 -->
+    <!-- 目标健康矩阵：每台对象一个色块，点击下钻到监控对象 -->
     <el-card shadow="hover" style="margin-top: 16px">
       <template #header>
         <div class="trend-header">
-          <span>本机 CPU / 内存 · 近 1 小时趋势</span>
+          <span>目标健康矩阵 <span class="matrix-sub">按最新采样综合评级，点击色块下钻单机详情</span></span>
+          <div class="legend">
+            <span class="legend-item"><i class="dot dot-green"></i>正常</span>
+            <span class="legend-item"><i class="dot dot-orange"></i>关注</span>
+            <span class="legend-item"><i class="dot dot-red"></i>告警</span>
+            <span class="legend-item"><i class="dot dot-gray"></i>无数据</span>
+          </div>
+        </div>
+      </template>
+      <div class="matrix">
+        <div v-for="cell in matrix" :key="cell.targetId"
+             class="matrix-cell" :class="'lv-' + cellLevel(cell)"
+             :title="cellTooltip(cell)"
+             @click="gotoTarget(cell)">
+          <div class="cell-name" :title="cell.name">{{ cell.name }}</div>
+          <div class="cell-type">{{ typeLabel(cell.targetType) }}</div>
+          <div class="cell-metrics">
+            <span>CPU {{ cell.cpu != null ? cell.cpu + '%' : '-' }}</span>
+            <span>内存 {{ cell.mem != null ? cell.mem + '%' : '-' }}</span>
+          </div>
+          <div v-if="cell.pendingAlerts > 0" class="cell-badge" :class="{ crit: cell.criticalAlerts > 0 }">
+            {{ cell.pendingAlerts }}
+          </div>
+          <div v-if="!cell.agentOnline" class="cell-offline">离线</div>
+        </div>
+        <div v-if="!matrix.length" class="matrix-empty">暂无监控对象</div>
+      </div>
+    </el-card>
+
+    <!-- 近 1h 趋势图（全 host 聚合） -->
+    <el-card shadow="hover" style="margin-top: 16px">
+      <template #header>
+        <div class="trend-header">
+          <span>全部主机 CPU / 内存 · 近 1 小时趋势（聚合均值）</span>
           <RefreshSelector v-model="refreshMs" @change="onRefreshChange" />
         </div>
       </template>
@@ -179,13 +212,16 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
 import BaseChart from '../../components/BaseChart.vue'
 import RefreshSelector from '../../components/RefreshSelector.vue'
 import { queryMetric } from '../../api/monitor'
-import { getStatOverview } from '../../api/dashboard'
+import { getStatOverview, getHealthMatrix } from '../../api/dashboard'
 import { minutesAgo, nowString } from '../../utils/time'
 
+const router = useRouter()
 const ov = ref({})
+const matrix = ref([])
 const trendOption = ref({})
 let timer = null
 
@@ -196,7 +232,7 @@ const refreshMs = ref(Number(localStorage.getItem(REFRESH_KEY)) || 30000)
 function startTimer () {
   if (timer) { clearInterval(timer); timer = null }
   if (refreshMs.value > 0) {
-    timer = setInterval(() => { loadOverview(); loadTrend() }, refreshMs.value)
+    timer = setInterval(() => { loadOverview(); loadMatrix().then(loadTrend) }, refreshMs.value)
   }
 }
 function onRefreshChange (ms) {
@@ -224,23 +260,66 @@ function barColor (v) {
   return '#3ba272'
 }
 
+/* ============ 健康矩阵 ============ */
+function typeLabel (t) {
+  return { host: '主机', service: '服务', prometheus: 'Prometheus' }[t] || t
+}
+/** 健康档位：red(告警/严重负载) / orange(关注) / green(正常) / gray(无数据) */
+function cellLevel (c) {
+  const hasData = c.cpu != null || c.mem != null
+  if (c.criticalAlerts > 0) return 'red'
+  if (!hasData) return 'gray'
+  if (c.cpu >= 90 || c.mem >= 90) return 'red'
+  if (c.pendingAlerts > 0 || c.cpu >= (ov.value.cpuThreshold ?? 80) || c.mem >= (ov.value.memThreshold ?? 85)) return 'orange'
+  return 'green'
+}
+function cellTooltip (c) {
+  const parts = [`${c.name}（${typeLabel(c.targetType)}）`]
+  parts.push(`CPU ${c.cpu != null ? c.cpu + '%' : '无数据'}，内存 ${c.mem != null ? c.mem + '%' : '无数据'}`)
+  parts.push(c.pendingAlerts > 0 ? `活跃告警 ${c.pendingAlerts} 条（CRITICAL ${c.criticalAlerts}）` : '无活跃告警')
+  parts.push(c.agentOnline ? 'Agent 在线' : 'Agent 离线')
+  parts.push('点击下钻单机详情')
+  return parts.join('\n')
+}
+function gotoTarget (c) {
+  router.push({ path: '/monitor/target', query: { targetId: c.targetId } })
+}
+
 async function loadOverview () {
   ov.value = await getStatOverview()
 }
 
+async function loadMatrix () {
+  matrix.value = await getHealthMatrix()
+}
+
+/** 全 host 聚合曲线：取所有主机指标序列，按时间桶在前端求均值 */
 async function loadTrend () {
+  const hostIds = matrix.value.filter(c => c.targetType === 'host').map(c => c.targetId)
+  if (!hostIds.length) { trendOption.value = {}; return }
   const data = await queryMetric({
-    targetIds: [1],
+    targetIds: hostIds,
     metricKeys: ['cpu.usage', 'mem.usage'],
     startTime: minutesAgo(60),
     endTime: nowString(),
     aggregation: 'avg',
     step: '1m'
   })
-  const series = {}
+  // querySeries 按 target 分桶返回，这里聚合成单条均值曲线
+  const acc = {} // metricKey -> bucketTime -> {sum, n}
   data.forEach(row => {
-    if (!series[row.metricKey]) series[row.metricKey] = []
-    series[row.metricKey].push([row.bucketTime, row.value])
+    if (row.value == null) return
+    if (!acc[row.metricKey]) acc[row.metricKey] = {}
+    const b = acc[row.metricKey][row.bucketTime] || { sum: 0, n: 0 }
+    b.sum += Number(row.value)
+    b.n += 1
+    acc[row.metricKey][row.bucketTime] = b
+  })
+  const series = {}
+  Object.keys(acc).forEach(k => {
+    series[k] = Object.entries(acc[k])
+      .map(([time, b]) => [time, Math.round((b.sum / b.n) * 100) / 100])
+      .sort((a, b) => new Date(a[0]) - new Date(b[0]))
   })
   const palette = ['#4361ee', '#3ba272', '#e6a23c', '#f4496a']
   trendOption.value = {
@@ -294,8 +373,9 @@ async function loadTrend () {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   loadOverview()
+  await loadMatrix()
   loadTrend()
   startTimer()
 })
@@ -445,4 +525,80 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
   align-items: center;
   justify-content: space-between;
 }
+
+/* ============ 目标健康矩阵 ============ */
+.matrix-sub { font-size: 12px; color: #97a1b5; font-weight: 400; margin-left: 8px; }
+.legend { display: flex; gap: 14px; }
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #8a93a8; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.dot-green  { background: #3ba272; }
+.dot-orange { background: #e6a23c; }
+.dot-red    { background: #f4496a; }
+.dot-gray   { background: #c3ccdd; }
+
+.matrix {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.matrix-cell {
+  position: relative;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid #e9edf4;
+  border-left-width: 4px;
+  cursor: pointer;
+  transition: box-shadow .2s ease, transform .2s ease;
+  background: #fff;
+}
+.matrix-cell:hover { box-shadow: 0 6px 16px rgba(21, 32, 71, 0.1); transform: translateY(-2px); }
+.matrix-cell.lv-green  { border-left-color: #3ba272; background: #f7fcfa; }
+.matrix-cell.lv-orange { border-left-color: #e6a23c; background: #fffaf2; }
+.matrix-cell.lv-red    { border-left-color: #f4496a; background: #fff5f7; }
+.matrix-cell.lv-gray   { border-left-color: #c3ccdd; background: #fafbfd; }
+
+.cell-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #2b3245;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 30px;
+}
+.cell-type { font-size: 11px; color: #97a1b5; margin: 2px 0 8px; }
+.cell-metrics {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: #5b6478;
+  font-variant-numeric: tabular-nums;
+}
+.cell-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #e6a23c;
+  color: #fff;
+  font-size: 11px;
+  line-height: 20px;
+  text-align: center;
+  font-weight: 600;
+}
+.cell-badge.crit { background: #f4496a; }
+.cell-offline {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  font-size: 10.5px;
+  color: #98a1b3;
+  border: 1px solid #d3d9e5;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.matrix-empty { grid-column: 1 / -1; text-align: center; color: #97a1b5; font-size: 13px; padding: 30px 0; }
 </style>
