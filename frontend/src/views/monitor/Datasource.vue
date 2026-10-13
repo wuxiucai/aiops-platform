@@ -11,6 +11,13 @@
       <el-table :data="rows" border stripe v-loading="loading" empty-text="暂无数据源">
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="name" label="名称" min-width="160" show-overflow-tooltip />
+        <el-table-column label="类型" width="120">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.type === 'elasticsearch' ? 'primary' : (row.type === 'opensearch' ? 'warning' : 'info')">
+              {{ typeLabel(row.type) }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="连接地址" min-width="200">
           <template #default="{ row }">
             <code>{{ row.esScheme }}://{{ row.esHost }}:{{ row.esPort }}</code>
@@ -47,6 +54,14 @@
       <el-form :model="form" label-width="110px">
         <el-form-item label="名称" required>
           <el-input v-model="form.name" placeholder="如 elk-cluster-prod" />
+        </el-form-item>
+        <el-form-item label="类型" required>
+          <el-select v-model="form.type" style="width: 240px">
+            <el-option value="elasticsearch" label="Elasticsearch" />
+            <el-option value="opensearch" label="OpenSearch" />
+            <el-option value="compatible" label="其他 ES 兼容源（Easysearch 等）" />
+          </el-select>
+          <div class="type-hint">查询走 _search DSL，OpenSearch 等 ES 兼容源可直接对接</div>
         </el-form-item>
         <el-form-item label="协议">
           <el-select v-model="form.esScheme" style="width: 140px">
@@ -98,8 +113,11 @@ const testingId = ref(null)
 const form = ref(defaultForm())
 
 function defaultForm () {
-  return { id: null, name: '', esScheme: 'http', esHost: '', esPort: 9200, username: '', password: '', apiKey: '', remark: '' }
+  return { id: null, name: '', type: 'elasticsearch', esScheme: 'http', esHost: '', esPort: 9200, username: '', password: '', apiKey: '', remark: '' }
 }
+
+const TYPE_LABELS = { elasticsearch: 'Elasticsearch', opensearch: 'OpenSearch', compatible: 'ES 兼容' }
+function typeLabel (t) { return TYPE_LABELS[t] || t || 'Elasticsearch' }
 
 async function load () {
   loading.value = true
@@ -111,7 +129,7 @@ async function load () {
 
 function openDialog (row) {
   form.value = row
-    ? { id: row.id, name: row.name, esScheme: row.esScheme || 'http', esHost: row.esHost, esPort: row.esPort, username: row.username || '', password: '', apiKey: '', remark: row.remark || '' }
+    ? { id: row.id, name: row.name, type: row.type || 'elasticsearch', esScheme: row.esScheme || 'http', esHost: row.esHost, esPort: row.esPort, username: row.username || '', password: '', apiKey: '', remark: row.remark || '' }
     : defaultForm()
   dialogVisible.value = true
 }
@@ -178,4 +196,5 @@ onMounted(load)
 
 <style scoped>
 .header-bar { display: flex; justify-content: space-between; align-items: center; }
+.type-hint { font-size: 12px; color: #98a1b3; margin-top: 4px; line-height: 1.4; }
 </style>

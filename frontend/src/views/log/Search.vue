@@ -9,6 +9,24 @@
         </div>
       </template>
       <el-form inline label-width="auto">
+        <el-form-item label="数据源">
+          <el-select v-model="datasourceId" style="width: 180px" @change="onDatasourceChange">
+            <el-option v-for="d in datasourceOptions" :key="d.id" :value="d.id" :label="d.name">
+              <span>{{ d.name }}</span>
+              <el-tag size="small" style="margin-left: 8px" :type="d.type === 'opensearch' ? 'warning' : 'info'">
+                {{ typeLabel(d.type) }}
+              </el-tag>
+            </el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="索引">
+          <el-select v-model="indexConfigId" style="width: 220px" @change="onIndexChange">
+            <el-option v-for="i in indexOptions" :key="i.id" :value="i.id" :label="i.name">
+              <span>{{ i.name }}</span>
+              <span style="color:#98a1b3; font-size:11px; margin-left:6px">{{ i.indexPattern }}</span>
+            </el-option>
+          </el-select>
+        </el-form-item>
         <el-form-item label="时间范围">
           <el-date-picker
             v-model="timeRange"
@@ -17,6 +35,7 @@
             start-placeholder="开始时间"
             end-placeholder="结束时间"
             value-format="YYYY-MM-DD HH:mm:ss"
+            :shortcuts="timeShortcuts"
             style="width: 340px"
           />
         </el-form-item>
@@ -164,15 +183,58 @@ function formatTime(d) {
 }
 timeRange.value = defaultTimeRange()
 
-// ============ 数据源 & 服务候选 ============
-const datasourceId = 1
-const indexConfigId = 1
+// ============ 数据源 & 索引（多 ES 检索） ============
+const datasourceOptions = ref([])
+const indexOptions = ref([])
+const datasourceId = ref(null)
+const indexConfigId = ref(null)
+
+const TYPE_LABELS = { elasticsearch: 'Elasticsearch', opensearch: 'OpenSearch', compatible: 'ES 兼容' }
+function typeLabel (t) { return TYPE_LABELS[t] || t || 'Elasticsearch' }
+
+async function loadDatasources () {
+  const list = await request.get('/api/es/datasource/list')
+  datasourceOptions.value = (list || []).filter(d => d.status === 1)
+  if (!datasourceOptions.value.length) {
+    ElMessage.warning('暂无可用 ES 数据源，请先在数据源管理中配置')
+    return
+  }
+  // 优先默认数据源，否则第一个
+  const def = datasourceOptions.value.find(d => d.isDefault === 1) || datasourceOptions.value[0]
+  datasourceId.value = def.id
+  await loadIndexConfigs()
+}
+
+async function loadIndexConfigs () {
+  const list = await request.get('/api/es/index-config/list', { params: { datasourceId: datasourceId.value } })
+  indexOptions.value = (list || []).filter(i => i.enabled === 1 || i.enabled == null)
+  if (indexOptions.value.length) {
+    indexConfigId.value = indexOptions.value[0].id
+  } else {
+    indexConfigId.value = null
+  }
+}
+
+async function onDatasourceChange () {
+  await loadIndexConfigs()
+  loadServiceOptions()
+  onSearch()
+}
+
+function onIndexChange () {
+  loadServiceOptions()
+  onSearch()
+}
+
+// ============ 服务候选 ============
 const serviceOptions = ref([])
 
 async function loadServiceOptions() {
+  if (!datasourceId.value) return
+  const idx = indexOptions.value.find(i => i.id === indexConfigId.value)
   try {
-    const raw = await request.get(`/api/es/datasource/${datasourceId}/fields`, {
-      params: { indexPattern: 'aiops-log-*' }
+    const raw = await request.get(`/api/es/datasource/${datasourceId.value}/fields`, {
+      params: { indexPattern: idx?.indexPattern || 'aiops-log-*' }
     })
     // 字段候选可能是数组或 { service: [...] }
     let candidates = []
@@ -200,8 +262,8 @@ const dsl = ref('')
 function buildParams() {
   const [startTime, endTime] = timeRange.value || []
   return {
-    datasourceId,
-    indexConfigId,
+    datasourceId: datasourceId.value,
+    indexConfigId: indexConfigId.value,
     startTime,
     endTime,
     levels: query.levels || [],
@@ -217,6 +279,10 @@ function buildParams() {
 async function onSearch() {
   if (!timeRange.value || timeRange.value.length !== 2) {
     ElMessage.warning('请选择时间范围')
+    return
+  }
+  if (!datasourceId.value || !indexConfigId.value) {
+    ElMessage.warning('请先选择数据源与索引配置')
     return
   }
   loading.value = true
@@ -369,8 +435,8 @@ async function onContext(row) {
     const start = new Date(anchorTime.getTime() - fiveMin)
     const end = new Date(anchorTime.getTime() + fiveMin)
     const data = await searchLogs({
-      datasourceId,
-      indexConfigId,
+      datasourceId: datasourceId.value,
+      indexConfigId: indexConfigId.value,
       startTime: formatTime(start),
       endTime: formatTime(end),
       levels: [],
@@ -395,7 +461,18 @@ function levelType(l) {
   return 'success'
 }
 
-onMounted(() => {
+// ============ 时间快捷项 ============
+const timeShortcuts = [
+  { text: '近 10 分钟', value: () => { const e = new Date(); return [new Date(e.getTime() - 10 * 60_000), e] } },
+  { text: '近 1 小时', value: () => { const e = new Date(); return [new Date(e.getTime() - 3600_000), e] } },
+  { text: '近 6 小时', value: () => { const e = new Date(); return [new Date(e.getTime() - 6 * 3600_000), e] } },
+  { text: '近 24 小时', value: () => { const e = new Date(); return [new Date(e.getTime() - 24 * 3600_000), e] } },
+  { text: '近 3 天', value: () => { const e = new Date(); return [new Date(e.getTime() - 3 * 86400_000), e] } },
+  { text: '近 7 天', value: () => { const e = new Date(); return [new Date(e.getTime() - 7 * 86400_000), e] } }
+]
+
+onMounted(async () => {
+  await loadDatasources()
   loadServiceOptions()
   onSearch()
 })

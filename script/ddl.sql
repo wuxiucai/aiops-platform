@@ -101,6 +101,7 @@ CREATE TABLE llm_prompt_template (
 CREATE TABLE es_datasource (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   name VARCHAR(64) NOT NULL,
+  type VARCHAR(32) NOT NULL DEFAULT 'elasticsearch' COMMENT '数据源类型: elasticsearch/opensearch/compatible',
   es_scheme VARCHAR(8) DEFAULT 'http',
   es_host VARCHAR(128) NOT NULL, es_port INT NOT NULL DEFAULT 9200,
   username VARCHAR(128), password_enc VARCHAR(1024), api_key VARCHAR(1024),

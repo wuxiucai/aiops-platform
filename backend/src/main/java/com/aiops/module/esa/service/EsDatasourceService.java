@@ -84,6 +84,8 @@ public class EsDatasourceService {
             JsonNode root = objectMapper.readTree(rootResp);
             String version = root.path("version").path("number").asText();
             String clusterName = root.path("cluster_name").asText();
+            // ES 兼容源识别：OpenSearch 等会带 distribution 字段
+            String distribution = root.path("version").path("distribution").asText("elasticsearch");
 
             String healthResp = esLogClient.get(baseUrl, "/_cluster/health");
             JsonNode health = objectMapper.readTree(healthResp);
@@ -104,6 +106,7 @@ public class EsDatasourceService {
                     "ok", true,
                     "testResult", "OK " + version + " nodes=" + nodeCount + " " + ikInfo,
                     "version", version, "clusterName", clusterName,
+                    "distribution", distribution,
                     "nodeCount", nodeCount, "status", status, "ik", ikInfo);
 
             EsDatasource upd = new EsDatasource();

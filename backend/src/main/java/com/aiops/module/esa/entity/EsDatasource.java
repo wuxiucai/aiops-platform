@@ -22,6 +22,10 @@ public class EsDatasource {
     @TableField("name")
     private String name;
 
+    /** 数据源类型：elasticsearch / opensearch / compatible（其他 ES DSL 兼容源） */
+    @TableField("type")
+    private String type;
+
     @TableField("es_scheme")
     private String esScheme;
 
