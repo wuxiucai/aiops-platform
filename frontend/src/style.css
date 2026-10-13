@@ -42,11 +42,13 @@ html, body, #app {
   border: 1px solid #e9edf4;
   border-radius: 10px;
   box-shadow: 0 1px 3px rgba(21, 32, 71, 0.04);
-  transition: box-shadow .25s ease, transform .25s ease;
+  transition: box-shadow .25s ease;
 }
 .el-card.is-hover-shadow:hover {
   box-shadow: 0 6px 18px rgba(21, 32, 71, 0.08);
-  transform: translateY(-2px);
+  /* 注意：不能给 .el-card 加 hover transform——祖先一旦有 transform，
+     其内部 position:fixed 的 el-dialog 会改以卡片为定位基准，矮卡片里
+     的弹窗下半部分（含保存按钮）会被裁切滚出可视区 */
 }
 .el-card__header {
   padding: 14px 18px;
