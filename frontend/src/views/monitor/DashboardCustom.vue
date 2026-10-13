@@ -47,9 +47,10 @@
               :class="{active: current?.id === t.id}"
               @click="openTemplate(t.id)"
             >
-              <span class="tpl-name">{{ t.name }}</span>
+              <span class="tpl-name" :title="t.name + '（双击可重命名）'">{{ t.name }}</span>
               <el-tag v-if="t.isDefault === 1" size="small" type="success">默认</el-tag>
-              <span class="ops" @click.stop>
+              <span class="ops">
+                <el-button size="small" link type="primary" @click="onRenameTemplate(t)">改名</el-button>
                 <el-button size="small" link type="danger" @click="onDeleteTemplate(t)">删</el-button>
               </span>
             </div>
@@ -604,6 +605,25 @@ async function setDefault () {
   } catch (e) { /* 拦截器已弹错 */ }
 }
 
+async function onRenameTemplate (t) {
+  const { value } = await ElMessageBox.prompt('新的模板名称', '重命名模板', {
+    inputValue: t.name,
+    confirmButtonText: '重命名',
+    cancelButtonText: '取消',
+    inputPattern: /\S/,
+    inputErrorMessage: '名称不能为空'
+  }).catch(() => ({ value: null }))
+  const name = (value || '').trim()
+  if (!name || name === t.name) return
+  try {
+    // 复用保存接口：body 只带 name 即可只更新名称
+    await saveTemplate(t.id, { name })
+    ElMessage.success('已重命名')
+    if (current.value?.id === t.id) current.value.name = name
+    await loadTemplates()
+  } catch (e) { /* 拦截器已弹错 */ }
+}
+
 async function onDeleteTemplate (t) {
   try {
     await ElMessageBox.confirm(`确认删除模板「${t.name}」？其下所有 widget 将一并删除。`, '删除模板', {
@@ -885,9 +905,9 @@ onMounted(() => { load(); loadTargetsAndMetrics() })
 }
 .tpl-side-list .tpl-item:hover { background: #f5f7fa }
 .tpl-side-list .tpl-item.active { background: #ecf3ff; color: #4361ee; font-weight: 500; }
-.tpl-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tpl-side-list .tpl-item .ops { opacity: 0; transition: opacity .15s }
-.tpl-side-list .tpl-item:hover .ops { opacity: 1 }
+.tpl-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
+/* 模板操作按钮常显（hover 才出现曾被反馈"看不见"） */
+.tpl-side-list .tpl-item .ops { display: flex; gap: 0; flex-shrink: 0 }
 .tpl-side-list .tpl-item.active .ops :deep(.el-button) { color: #fff }
 .widget-box { display: flex; flex-direction: column; height: 100%; border: 1px solid #e4e7ed; border-radius: 3px; background: #fff }
 .widget-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; border-bottom: 1px solid #f0f0f0; font-size: 12px; user-select: none; -webkit-user-select: none; cursor: grab; }

@@ -126,7 +126,12 @@
             <el-tag v-if="groupOf(currentTarget)" size="small" type="info">{{ groupOf(currentTarget) }}</el-tag>
             <span v-else style="color:#909399; font-size:12px">未分组</span>
           </el-descriptions-item>
-          <el-descriptions-item label="操作" :span="4">
+          <el-descriptions-item label="Agent 状态">
+            <el-tag :type="agentOnline ? 'success' : 'info'" size="small">{{ agentOnline ? '在线' : '离线' }}</el-tag>
+            <span style="margin-left:6px; color:#909399; font-size:12px">心跳 {{ currentTarget.lastHeartbeat || '从未上报' }}</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="创建时间">{{ currentTarget.createTime || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="操作">
             <el-button size="small" type="primary" plain @click="openEditDialog" v-if="hasPerm('monitor:target:update')">编辑</el-button>
             <el-button size="small" type="danger" plain @click="onDelete" v-if="hasPerm('monitor:target:delete')">删除</el-button>
           </el-descriptions-item>
