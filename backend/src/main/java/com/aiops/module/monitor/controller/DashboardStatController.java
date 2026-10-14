@@ -171,9 +171,11 @@ public class DashboardStatController {
         Long serviceCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM monitor_target WHERE deleted=0 AND target_type='service'", Long.class);
         Long agentOnline = jdbc.queryForObject(
-                // agent_status 字段从未被回写（默认 unknown），在线判定与 AgentController 一致：心跳在 2 分钟内
-                "SELECT COUNT(*) FROM monitor_target WHERE deleted=0 " +
-                        "AND last_heartbeat IS NOT NULL AND last_heartbeat >= DATE_SUB(NOW(), INTERVAL 2 MINUTE)",
+                // 心跳实际写在 monitor_agent 表（monitor_target.last_heartbeat 从未被回写），
+                // 在线口径与 AgentController 一致：agent 心跳在 2 分钟内
+                "SELECT COUNT(DISTINCT a.target_id) FROM monitor_agent a " +
+                        "JOIN monitor_target t ON t.id = a.target_id AND t.deleted = 0 " +
+                        "WHERE a.last_heartbeat IS NOT NULL AND a.last_heartbeat >= DATE_SUB(NOW(), INTERVAL 2 MINUTE)",
                 Long.class);
         long targetTotal = nz(hostCount) + nz(serviceCount);
         out.put("targetTotal", targetTotal);
@@ -300,12 +302,13 @@ public class DashboardStatController {
             alertMap.put(tid, new long[]{cnt, crit});
         }
 
-        // Agent 在线（2min 心跳）
+        // Agent 在线（2min 心跳，存于 monitor_agent 表）
         java.util.Set<Long> onlineIds = new java.util.HashSet<>();
         for (Map<String, Object> r : jdbc.queryForList(
-                "SELECT id FROM monitor_target WHERE deleted=0 " +
-                        "AND last_heartbeat IS NOT NULL AND last_heartbeat >= DATE_SUB(NOW(), INTERVAL 2 MINUTE)")) {
-            onlineIds.add(((Number) r.get("id")).longValue());
+                "SELECT DISTINCT a.target_id AS tid FROM monitor_agent a " +
+                        "JOIN monitor_target t ON t.id = a.target_id AND t.deleted = 0 " +
+                        "WHERE a.last_heartbeat IS NOT NULL AND a.last_heartbeat >= DATE_SUB(NOW(), INTERVAL 2 MINUTE)")) {
+            onlineIds.add(((Number) r.get("tid")).longValue());
         }
 
         List<Map<String, Object>> out = new java.util.ArrayList<>();
