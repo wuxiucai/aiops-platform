@@ -3,10 +3,9 @@ package com.aiops.module.log.service;
 import com.aiops.common.BizException;
 import com.aiops.datasource.log.EsLogClient;
 import com.aiops.datasource.log.EsQueryBuilder;
-import com.aiops.module.esa.entity.EsDatasource;
+import com.aiops.common.util.TimeZones;
 import com.aiops.module.esa.entity.EsIndexConfig;
-import com.aiops.module.esa.mapper.EsDatasourceMapper;
-import com.aiops.module.esa.mapper.EsIndexConfigMapper;
+import com.aiops.module.esa.service.LogSourceResolver;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -30,20 +29,16 @@ public class LogSearchService {
 
     private static final DateTimeFormatter IN_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private final EsDatasourceMapper esDatasourceMapper;
-    private final EsIndexConfigMapper esIndexConfigMapper;
+    private final LogSourceResolver logSourceResolver;
     private final EsLogClient esLogClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /** POST /api/log/search：参数 = 检索请求体 Map。返回{total, records, dsl} */
     public Map<String, Object> search(Map<String, Object> body) {
-        EsQueryBuilder.SearchParams p = parseParams(body);
+        LogSourceResolver.LogSource source = resolveSource(body);
+        EsQueryBuilder.SearchParams p = parseParams(body, source.indexConfig());
         String dsl = EsQueryBuilder.buildSearchDsl(p);
-        EsDatasource ds = esDatasourceMapper.selectById(pDatasourceId(body));
-        if (ds == null) {
-            throw new BizException("ES 数据源未配置");
-        }
-        String resp = esLogClient.postSearch(ds.baseUrl(), p.indexPattern() + "/_search", dsl);
+        String resp = esLogClient.postSearch(source.datasource().baseUrl(), p.indexPattern() + "/_search", dsl);
         Map<String, Object> out = new HashMap<>();
         out.put("dsl", dsl);
         try {
@@ -77,13 +72,10 @@ public class LogSearchService {
 
     /** POST /api/log/search/histogram：时间直方图 */
     public Map<String, Object> histogram(Map<String, Object> body) {
-        EsQueryBuilder.SearchParams p = parseParams(body);
+        LogSourceResolver.LogSource source = resolveSource(body);
+        EsQueryBuilder.SearchParams p = parseParams(body, source.indexConfig());
         String dsl = EsQueryBuilder.buildHistogramDsl(p);
-        EsDatasource ds = esDatasourceMapper.selectById(pDatasourceId(body));
-        if (ds == null) {
-            throw new BizException("ES 数据源未配置");
-        }
-        String resp = esLogClient.postSearch(ds.baseUrl(), p.indexPattern() + "/_search", dsl);
+        String resp = esLogClient.postSearch(source.datasource().baseUrl(), p.indexPattern() + "/_search", dsl);
         Map<String, Object> out = new HashMap<>();
         out.put("dsl", dsl);
         try {
@@ -103,32 +95,14 @@ public class LogSearchService {
         return out;
     }
 
-    /**
-     * ES 的 @timestamp / date_histogram key_as_string 都是 UTC（形如 2026-09-30T03:01:46.996Z），
-     * 直接透传给前端会显示成 UTC 时间，与平台其余地方的 +08:00 本地时间不一致 → 统一转 +8。
-     */
+    /** ES 时间（UTC）→ 平台本地时间串，换算规则见 TimeZones */
     private String toLocalTime(String esTime) {
-        if (esTime == null || esTime.isBlank()) return null;
-        try {
-            String t = esTime;
-            if (t.endsWith("Z")) t = t.substring(0, t.length() - 1);
-            LocalDateTime utc = LocalDateTime.parse(t, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-            return utc.plusHours(8).format(IN_FMT);
-        } catch (Exception e) {
-            return esTime;
-        }
+        return TimeZones.esTimeToLocalString(esTime);
     }
 
     /** 解析前端参数为 SearchParams */
     @SuppressWarnings("unchecked")
-    private EsQueryBuilder.SearchParams parseParams(Map<String, Object> body) {
-        Long dsId = pDatasourceId(body);
-        Long idxId = body.get("indexConfigId") == null ? 1L
-                : ((Number) body.get("indexConfigId")).longValue();
-        EsIndexConfig idx = esIndexConfigMapper.selectById(idxId);
-        if (idx == null) {
-            throw new BizException("索引配置不存在");
-        }
+    private EsQueryBuilder.SearchParams parseParams(Map<String, Object> body, EsIndexConfig idx) {
         String startStr = (String) body.get("startTime");
         String endStr = (String) body.get("endTime");
         if (startStr == null || endStr == null) {
@@ -151,11 +125,15 @@ public class LogSearchService {
                 start, end, levels, services, keyword, traceId, page, size, analyzer);
     }
 
-    private Long pDatasourceId(Map<String, Object> body) {
-        Object v = body.get("datasourceId");
-        if (v == null) {
-            return 1L;
+    /** 前端未选时由 LogSourceResolver 落到默认数据源，不再静默用 id=1 */
+    private LogSourceResolver.LogSource resolveSource(Map<String, Object> body) {
+        return logSourceResolver.resolve(toLong(body.get("datasourceId")), toLong(body.get("indexConfigId")));
+    }
+
+    private static Long toLong(Object v) {
+        if (v == null || String.valueOf(v).isBlank()) {
+            return null;
         }
-        return v instanceof Number ? ((Number) v).longValue() : Long.parseLong(String.valueOf(v));
+        return v instanceof Number n ? n.longValue() : Long.parseLong(String.valueOf(v));
     }
 }

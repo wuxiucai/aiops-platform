@@ -389,7 +389,7 @@ public class Nl2QueryService {
     private void saveCallLogSuccess(String scene, long refId, LlmSchemaRetryService.SchemaCheckedResult r) {
         try {
             LlmCallLog l = new LlmCallLog();
-            l.setProviderId(1L);
+            l.setProviderId(currentProviderId());
             l.setSceneCode(scene);
             l.setRefId(refId);
             l.setPromptTokens(r.totalPromptTokens());
@@ -407,7 +407,7 @@ public class Nl2QueryService {
     private void saveCallLogFail(String scene, long refId, String errMsg) {
         try {
             LlmCallLog l = new LlmCallLog();
-            l.setProviderId(1L);
+            l.setProviderId(currentProviderId());
             l.setSceneCode(scene);
             l.setRefId(refId);
             l.setStatus("fail");
@@ -469,5 +469,14 @@ public class Nl2QueryService {
     /** 中文/Locale 兜底，无 operations。 */
     private static String fmt(Locale locale, String template, Object... args) {
         return String.format(locale, template, args);
+    }
+
+    /** 当前默认 provider 的 id（记 llm_call_log 用）；查不到时记 null，不影响主流程 */
+    private Long currentProviderId() {
+        try {
+            return llmProviderService.getDefault().getId();
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

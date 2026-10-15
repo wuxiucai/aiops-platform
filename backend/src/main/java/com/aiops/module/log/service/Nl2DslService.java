@@ -4,8 +4,8 @@ import com.aiops.common.BizException;
 import com.aiops.datasource.log.EsLogClient;
 import com.aiops.module.esa.entity.EsDatasource;
 import com.aiops.module.esa.entity.EsIndexConfig;
-import com.aiops.module.esa.mapper.EsDatasourceMapper;
-import com.aiops.module.esa.mapper.EsIndexConfigMapper;
+import com.aiops.module.esa.service.LogSourceResolver;
+import com.aiops.module.esa.service.LogSourceResolver.LogSource;
 import com.aiops.module.llm.client.LlmClient;
 import com.aiops.module.llm.entity.LlmProvider;
 import com.aiops.module.llm.mapper.LlmProviderMapper;
@@ -55,8 +55,7 @@ public class Nl2DslService {
     private static final int VALIDATION_FEEDBACK_RETRIES = 2;
     private static final int DEFAULT_HISTORY_LIMIT = 20;
 
-    private final EsDatasourceMapper esDatasourceMapper;
-    private final EsIndexConfigMapper esIndexConfigMapper;
+    private final LogSourceResolver logSourceResolver;
     private final EsLogClient esLogClient;
     private final NlQueryLogMapper nlQueryLogMapper;
     private final LlmProviderMapper llmProviderMapper;
@@ -73,12 +72,21 @@ public class Nl2DslService {
      * 失败：validated=0，返回 {dsl, validated:false, errors, retryCount, recordId}。
      */
     public Map<String, Object> generate(Long userId, String question) {
+        return generate(userId, question, null, null);
+    }
+
+    /**
+     * @param datasourceId  可空；为空时用默认数据源
+     * @param indexConfigId 可空；为空时用该数据源下第一个启用的索引映射
+     */
+    public Map<String, Object> generate(Long userId, String question, Long datasourceId, Long indexConfigId) {
         if (question == null || question.isBlank()) {
             throw new BizException("question 不能为空");
         }
         long t0 = System.currentTimeMillis();
-        EsIndexConfig cfg = loadIndexConfig();
-        List<String> serviceList = listKnownServices(cfg);
+        LogSource source = logSourceResolver.resolve(datasourceId, indexConfigId);
+        EsIndexConfig cfg = source.indexConfig();
+        List<String> serviceList = listKnownServices(source);
 
         LlmProvider provider = pickProvider();
         LlmClient client = llmProviderService.buildClient(provider);
@@ -96,7 +104,7 @@ public class Nl2DslService {
             String reason = "问题要求破坏性操作（含危险动词），本平台只读";
             log.warn("[nl2es_dsl] 语义层前置拦截： {} -> {}", question, reason);
             long tBlocked = System.currentTimeMillis();
-            NlQueryLog blocked = persistLog(userId, question, null, 0, null,
+            NlQueryLog blocked = persistLog(source, userId, question, null, 0, null,
                     0, System.currentTimeMillis() - tBlocked, null);
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("dsl", null);
@@ -121,7 +129,7 @@ public class Nl2DslService {
                     client, provider.getModelName(), "nl2es_dsl", placeholders);
         } catch (BizException e) {
             log.warn("[nl2es_dsl] LLM schema retry fail q={} err={}", question, e.getMessage());
-            NlQueryLog fail = persistLog(userId, question, null, 0, null,
+            NlQueryLog fail = persistLog(source, userId, question, null, 0, null,
                     VALIDATION_FEEDBACK_RETRIES, System.currentTimeMillis() - t0, null);
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("dsl", null);
@@ -142,7 +150,7 @@ public class Nl2DslService {
             String reason = dslJson.path("reason").asText("问题被标记为破坏性操作");
             log.warn("[nl2es_dsl] LLM 标记为危险请求 q={} reason={}",
                     (question == null ? "" : (question.length() > 60 ? question.substring(0, 60) + "…" : question)), reason);
-            NlQueryLog fail = persistLog(userId, question, dslJson.toString(), 0, null,
+            NlQueryLog fail = persistLog(source, userId, question, dslJson.toString(), 0, null,
                     0, System.currentTimeMillis() - t0, null);
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("dsl", dslJson);
@@ -181,7 +189,7 @@ public class Nl2DslService {
 
         long latency = System.currentTimeMillis() - t0;
         if (vr.ok()) {
-            NlQueryLog saved = persistLog(userId, question,
+            NlQueryLog saved = persistLog(source, userId, question,
                     dslJson.toString(), 1, null, retryCount + feedbackUsed, latency, null);
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("dsl", vr.dsl());
@@ -190,7 +198,7 @@ public class Nl2DslService {
             out.put("recordId", saved == null ? null : saved.getId());
             return out;
         }
-        NlQueryLog saved = persistLog(userId, question,
+        NlQueryLog saved = persistLog(source, userId, question,
                 dslJson == null ? null : dslJson.toString(), 0, null, retryCount + feedbackUsed, latency, null);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("dsl", dslJson);
@@ -220,8 +228,10 @@ public class Nl2DslService {
         if (rec.getGeneratedDsl() == null || rec.getGeneratedDsl().isBlank()) {
             throw new BizException("generated_dsl 为空");
         }
-        EsIndexConfig cfg = loadIndexConfig();
-        List<String> serviceList = listKnownServices(cfg);
+        // 校验与执行都必须用生成时的同一个来源：字段白名单是按该索引映射校验的
+        LogSource source = logSourceResolver.resolve(rec.getDatasourceId(), rec.getIndexConfigId());
+        EsIndexConfig cfg = source.indexConfig();
+        List<String> serviceList = listKnownServices(source);
 
         JsonNode dsl;
         try {
@@ -234,10 +244,7 @@ public class Nl2DslService {
         if (!vr.ok()) {
             throw new BizException("二次校验未通过：" + String.join("; ", vr.errors()));
         }
-        EsDatasource ds = esDatasourceMapper.selectById(1L);
-        if (ds == null) {
-            throw new BizException("ES 数据源未配置");
-        }
+        EsDatasource ds = source.datasource();
 
         long t0 = System.currentTimeMillis();
         String dslBody;
@@ -310,28 +317,14 @@ public class Nl2DslService {
 
     /* ================== 内部 ================== */
 
-    private EsIndexConfig loadIndexConfig() {
-        EsIndexConfig cfg = esIndexConfigMapper.selectById(1L);
-        if (cfg == null) {
-            // fallback：按 enabled=1 取第一条
-            cfg = esIndexConfigMapper.selectOne(new LambdaQueryWrapper<EsIndexConfig>()
-                    .eq(EsIndexConfig::getEnabled, 1)
-                    .last("LIMIT 1"));
-        }
-        if (cfg == null) {
-            throw new BizException("ES 索引配置未找到（es_index_config 需先配置）");
-        }
-        return cfg;
-    }
-
-    private List<String> listKnownServices(EsIndexConfig cfg) {
+    private List<String> listKnownServices(LogSource source) {
         Set<String> services = new HashSet<>();
-        if (cfg == null || cfg.getServiceField() == null) {
+        EsIndexConfig cfg = source.indexConfig();
+        if (cfg.getServiceField() == null) {
             return List.of();
         }
         try {
-            EsDatasource ds = esDatasourceMapper.selectById(cfg.getDatasourceId() == null ? 1L : cfg.getDatasourceId());
-            if (ds == null) return List.of();
+            EsDatasource ds = source.datasource();
             // terms agg：size=50
             String dsl = "{\n  \"size\":0,\n  \"aggs\":{\"svc\":{\"terms\":{\"field\":\""
                     + cfg.getServiceField()
@@ -396,12 +389,14 @@ public class Nl2DslService {
         return counts;
     }
 
-    private NlQueryLog persistLog(Long userId, String question, String generatedDsl,
+    private NlQueryLog persistLog(LogSource src, Long userId, String question, String generatedDsl,
                                   Integer validated, Integer executed,
                                   Integer retryCount, Long latencyMs, String answer) {
         try {
             NlQueryLog l = new NlQueryLog();
             l.setUserId(userId);
+            l.setDatasourceId(src.datasourceId());
+            l.setIndexConfigId(src.indexConfigId());
             l.setQuestion(question);
             l.setGeneratedDsl(generatedDsl);
             l.setValidated(validated);

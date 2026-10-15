@@ -49,7 +49,9 @@ public class Nl2DslController {
             throw new BizException("question 不能为空");
         }
         Long userId = currentUserId();
-        Map<String, Object> out = nl2DslService.generate(userId, question);
+        // 可选：前端选择的数据源/索引映射；未选时落到默认数据源
+        Map<String, Object> out = nl2DslService.generate(userId, question,
+                toLong(body.get("datasourceId")), toLong(body.get("indexConfigId")));
         return Result.ok(out);
     }
 
@@ -75,6 +77,13 @@ public class Nl2DslController {
     @GetMapping("/nl-query-history")
     public Result<List<NlQueryLog>> history(@RequestParam(value = "limit", required = false, defaultValue = "20") int limit) {
         return Result.ok(nl2DslService.history(currentUserId(), limit));
+    }
+
+    private static Long toLong(Object v) {
+        if (v == null || String.valueOf(v).isBlank()) {
+            return null;
+        }
+        return v instanceof Number n ? n.longValue() : Long.parseLong(String.valueOf(v));
     }
 
     private static Long currentUserId() {

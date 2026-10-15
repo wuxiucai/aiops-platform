@@ -1,7 +1,9 @@
 package com.aiops.module.log.service;
 
 import com.aiops.datasource.log.EsLogClient;
+import com.aiops.module.esa.entity.EsDatasource;
 import com.aiops.module.esa.entity.EsIndexConfig;
+import com.aiops.module.esa.service.LogSourceResolver;
 import com.aiops.module.esa.mapper.EsDatasourceMapper;
 import com.aiops.module.esa.mapper.EsIndexConfigMapper;
 import com.aiops.module.llm.client.LlmClient;
@@ -63,7 +65,7 @@ class Nl2DslServiceTest {
         schemaRetryService = new LlmSchemaRetryService(promptTemplateMapper);
 
         service = new Nl2DslService(
-                esDatasourceMapper, esIndexConfigMapper, esLogClient,
+                new LogSourceResolver(esDatasourceMapper, esIndexConfigMapper), esLogClient,
                 nlQueryLogMapper, llmProviderMapper, llmProviderService, schemaRetryService);
 
         cfg = new EsIndexConfig();
@@ -107,7 +109,15 @@ class Nl2DslServiceTest {
         }).when(nlQueryLogMapper).insert(any(NlQueryLog.class));
 
         // mock es datasource：仅 history 用不到；本次 generate 用不到，如 execute 用到也返回 null 即可（不会触发网络）
-        when(esDatasourceMapper.selectById(any())).thenReturn(null);
+        EsDatasource ds = new EsDatasource();
+        ds.setId(1L);
+        ds.setEsScheme("http");
+        ds.setEsHost("127.0.0.1");
+        ds.setEsPort(9200);
+        ds.setStatus(1);
+        ds.setIsDefault(1);
+        when(esDatasourceMapper.selectById(any())).thenReturn(ds);
+        when(esDatasourceMapper.selectOne(any())).thenReturn(ds);
         // mock listKnownServices → 不真正发请求
         when(esLogClient.postSearch(any(), any(), any())).thenThrow(new IllegalStateException("should not be called in generate path"));
     }

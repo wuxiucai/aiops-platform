@@ -221,6 +221,7 @@ import { ref, reactive, onMounted, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import request from '../../utils/request'
+import { useLogSource } from '../../composables/useLogSource'
 import { searchLogs, searchHistogram } from '../../api/log'
 import { useUserStore } from '../../store/user'
 import BaseChart from '../../components/BaseChart.vue'
@@ -251,36 +252,7 @@ function formatTime(d) {
 timeRange.value = defaultTimeRange()
 
 // ============ 数据源 & 索引（多 ES 检索） ============
-const datasourceOptions = ref([])
-const indexOptions = ref([])
-const datasourceId = ref(null)
-const indexConfigId = ref(null)
-
-const TYPE_LABELS = { elasticsearch: 'Elasticsearch', opensearch: 'OpenSearch', compatible: 'ES 兼容' }
-function typeLabel (t) { return TYPE_LABELS[t] || t || 'Elasticsearch' }
-
-async function loadDatasources () {
-  const list = await request.get('/api/es/datasource/list')
-  datasourceOptions.value = (list || []).filter(d => d.status === 1)
-  if (!datasourceOptions.value.length) {
-    ElMessage.warning('暂无可用 ES 数据源，请先在数据源管理中配置')
-    return
-  }
-  // 优先默认数据源，否则第一个
-  const def = datasourceOptions.value.find(d => d.isDefault === 1) || datasourceOptions.value[0]
-  datasourceId.value = def.id
-  await loadIndexConfigs()
-}
-
-async function loadIndexConfigs () {
-  const list = await request.get('/api/es/index-config/list', { params: { datasourceId: datasourceId.value } })
-  indexOptions.value = (list || []).filter(i => i.enabled === 1 || i.enabled == null)
-  if (indexOptions.value.length) {
-    indexConfigId.value = indexOptions.value[0].id
-  } else {
-    indexConfigId.value = null
-  }
-}
+const { datasourceOptions, indexOptions, datasourceId, indexConfigId, typeLabel, loadDatasources, loadIndexConfigs } = useLogSource()
 
 async function onDatasourceChange () {
   await loadIndexConfigs()

@@ -11,6 +11,22 @@
             </div>
           </template>
 
+          <div class="source-row">
+            <span class="chip-label">查询来源：</span>
+            <el-select v-model="datasourceId" size="small" style="width: 160px" @change="loadIndexConfigs">
+              <el-option v-for="d in datasourceOptions" :key="d.id" :value="d.id" :label="d.name">
+                <span>{{ d.name }}</span>
+                <el-tag size="small" style="margin-left: 8px" type="info">{{ typeLabel(d.type) }}</el-tag>
+              </el-option>
+            </el-select>
+            <el-select v-model="indexConfigId" size="small" style="width: 180px; margin-left: 6px" placeholder="索引映射">
+              <el-option v-for="i in indexOptions" :key="i.id" :value="i.id" :label="i.name">
+                <span>{{ i.name }}</span>
+                <span style="color:#98a1b3; font-size:11px; margin-left:6px">{{ i.indexPattern }}</span>
+              </el-option>
+            </el-select>
+          </div>
+
           <div class="quick-chips">
             <span class="chip-label">快捷问题：</span>
             <el-tag
@@ -190,10 +206,14 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { nl2dslGenerate, nl2dslExecute, nlQueryHistory } from '../../api/llm'
+import { useLogSource } from '../../composables/useLogSource'
 import BaseChart from '../../components/BaseChart.vue'
+
+// ============ 查询来源（ES 数据源 + 索引映射） ============
+const { datasourceOptions, indexOptions, datasourceId, indexConfigId, typeLabel, loadDatasources, loadIndexConfigs } = useLogSource()
 
 // ============ 输入 / 生成 ============
 const question = ref('')
@@ -223,7 +243,7 @@ async function onGenerate() {
   genResult.value = null
   execResult.value = null
   try {
-    const data = await nl2dslGenerate(q)
+    const data = await nl2dslGenerate(q, { datasourceId: datasourceId.value, indexConfigId: indexConfigId.value })
     // 后端期望返回 { recordId, dsl(JSON), validated, errors[], retryCount, latencyMs }
     genResult.value = {
       recordId: data?.recordId ?? null,
@@ -366,11 +386,14 @@ function formatTime(t) {
   }
   return String(t)
 }
+
+onMounted(loadDatasources)
 </script>
 
 <style scoped>
 .nl2dsl-page { padding: 0 }
 .header-bar { display: flex; justify-content: space-between; align-items: center }
+.source-row { display: flex; align-items: center; margin-bottom: 8px }
 .quick-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px }
 .chip-label { font-size: 12px; color: #909399 }
 .chip { cursor: pointer; }

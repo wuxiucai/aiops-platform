@@ -189,8 +189,7 @@ public class AiScenarioService {
                              LlmSchemaRetryService.SchemaCheckedResult r, String err) {
         try {
             com.aiops.module.llm.entity.LlmCallLog log_ = new com.aiops.module.llm.entity.LlmCallLog();
-            // provider_id 由调用者提供（AiScenarioService 不好查第二次），用号 1 (DeepSeek) 作为有线默认
-            log_.setProviderId(1L);
+            log_.setProviderId(currentProviderId());
             log_.setSceneCode(scene);
             log_.setRefId(refId);
             log_.setPromptTokens(r.totalPromptTokens());
@@ -209,7 +208,7 @@ public class AiScenarioService {
     private void saveCallLogFail(String scene, long refId, String errMsg) {
         try {
             com.aiops.module.llm.entity.LlmCallLog log_ = new com.aiops.module.llm.entity.LlmCallLog();
-            log_.setProviderId(1L);
+            log_.setProviderId(currentProviderId());
             log_.setSceneCode(scene);
             log_.setRefId(refId);
             log_.setStatus("fail");
@@ -248,5 +247,14 @@ public class AiScenarioService {
 
     public static String statStr(List<LogTemplateSummaryBuilder.TemplateStat> list) {
         return list.isEmpty() ? "(无)" : "";
+    }
+
+    /** 当前默认 provider 的 id（记 llm_call_log 用）；查不到时记 null，不影响主流程 */
+    private Long currentProviderId() {
+        try {
+            return llmProviderService.getDefault().getId();
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

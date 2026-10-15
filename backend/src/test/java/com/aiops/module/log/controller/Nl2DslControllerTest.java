@@ -72,10 +72,12 @@ class Nl2DslControllerTest {
         fakeOut.put("validated", true);
         fakeOut.put("retryCount", 0);
         fakeOut.put("recordId", 7L);
-        when(service.generate(eq(99L), anyString())).thenReturn(fakeOut);
+        when(service.generate(eq(99L), anyString(), any(), any())).thenReturn(fakeOut);
 
         Map<String, Object> body = new HashMap<>();
         body.put("question", "过去 1 小时 ERROR 日志");
+        body.put("datasourceId", 3);
+        body.put("indexConfigId", 2);
 
         mvc.perform(post("/api/log/ai/nl2dsl")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -86,7 +88,8 @@ class Nl2DslControllerTest {
                 .andExpect(jsonPath("$.data.recordId").value(7))
                 .andExpect(jsonPath("$.data.retryCount").value(0));
 
-        Mockito.verify(service).generate(eq(99L), eq("过去 1 小时 ERROR 日志"));
+        // 前端选择的数据源/索引映射必须原样透传给 service（不再固定 1 号）
+        Mockito.verify(service).generate(eq(99L), eq("过去 1 小时 ERROR 日志"), eq(3L), eq(2L));
     }
 
     /* ================== POST /api/log/ai/nl2dsl (空 question → 4xx-style err) ================== */
@@ -104,7 +107,7 @@ class Nl2DslControllerTest {
         } catch (Exception expected) {
             // BizException wrapped by servlet - expected
         }
-        Mockito.verify(service, Mockito.never()).generate(anyLong(), anyString());
+        Mockito.verify(service, Mockito.never()).generate(anyLong(), anyString(), any(), any());
     }
 
     /* ================== POST /api/log/ai/nl2dsl/execute ================== */

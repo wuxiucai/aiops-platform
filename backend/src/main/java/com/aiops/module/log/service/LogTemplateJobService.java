@@ -3,10 +3,11 @@ package com.aiops.module.log.service;
 import com.aiops.common.BizException;
 import com.aiops.datasource.log.EsLogClient;
 import com.aiops.datasource.log.EsQueryBuilder;
+import com.aiops.common.util.TimeZones;
 import com.aiops.module.esa.entity.EsDatasource;
 import com.aiops.module.esa.entity.EsIndexConfig;
-import com.aiops.module.esa.mapper.EsDatasourceMapper;
-import com.aiops.module.esa.mapper.EsIndexConfigMapper;
+import com.aiops.module.esa.service.LogSourceResolver;
+import com.aiops.module.esa.service.LogSourceResolver.LogSource;
 import com.aiops.module.log.drain.DrainParseResult;
 import com.aiops.module.log.drain.DrainService;
 import com.aiops.module.log.entity.LogAnomaly;
@@ -22,6 +23,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,15 +59,21 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class LogTemplateJobService {
 
-    /** Drain 训练域（论文红线条目：只处理这 3 个服务） */
+    /**
+     * 演示环境训练域：仅对演示索引（aiops-log-*）生效，只训练这 3 个服务，避免平台无关日志污染模板。
+     * 用户另行接入的索引映射训练该索引下的全部服务。
+     */
     public static final Set<String> TRAIN_SERVICES = Set.of(
             "order-service", "payment-service", "aiops-platform");
+    private static final String DEMO_INDEX_PATTERN = "aiops-log-*";
 
-    private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+    /** 单窗口最多拉取条数（application.yml aiops.log.max-pull-per-window；ES 单次 size 上限 10000） */
+    @Value("${aiops.log.max-pull-per-window:5000}")
+    private int maxPullPerWindow;
+
     private static final DateTimeFormatter HH = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private final EsDatasourceMapper esDatasourceMapper;
-    private final EsIndexConfigMapper esIndexConfigMapper;
+    private final LogSourceResolver logSourceResolver;
     private final EsLogClient esLogClient;
     private final DrainService drainService;
     private final LogTemplateMapper logTemplateMapper;
@@ -79,21 +87,41 @@ public class LogTemplateJobService {
      * @param windowMinutes 回看窗口（分钟）；通常 = 10（与 Job 周期一致）
      * @return 摘要
      */
-    @Transactional
     public Map<String, Object> runTemplateJob(int windowMinutes) {
+        List<LogSource> sources = logSourceResolver.listEnabled();
+        List<Map<String, Object>> perSource = new ArrayList<>();
+        for (LogSource src : sources) {
+            try {
+                perSource.add(runTemplateJobFor(src, windowMinutes));
+            } catch (Exception e) {
+                // 单个数据源不可达不影响其他数据源
+                log.warn("[LogTemplateJob] ds={} idx={} 失败：{}", src.datasourceId(), src.indexConfigId(), e.getMessage());
+                perSource.add(Map.of("datasourceId", src.datasourceId(), "indexConfigId", src.indexConfigId(),
+                        "error", String.valueOf(e.getMessage())));
+            }
+        }
+        Map<String, Object> out = new HashMap<>();
+        out.put("sources", sources.size());
+        out.put("results", perSource);
+        return out;
+    }
+
+    /** 处理单个"数据源 × 索引映射"：模板与统计按 datasource_id / index_config_id 隔离 */
+    @Transactional
+    public Map<String, Object> runTemplateJobFor(LogSource src, int windowMinutes) {
+        EsDatasource ds = src.datasource();
+        EsIndexConfig idx = src.indexConfig();
+        long dsId = ds.getId();
+        long idxId = idx.getId();
+        Set<String> trainDomain = trainDomainOf(idx);
+
         LocalDateTime now = LocalDateTime.now();
-        LocalDateTime start = watermark(now, windowMinutes);
+        LocalDateTime start = watermark(dsId, idxId, now, windowMinutes);
         LocalDateTime end = now;
 
-        EsDatasource ds = esDatasourceMapper.selectById(1L);
-        EsIndexConfig idx = esIndexConfigMapper.selectById(1L);
-        if (ds == null || idx == null) {
-            throw new BizException("ES 数据源/索引未配置");
-        }
-
-        // 1. 拉日志（service∈训练域，2 小时防漏）
-        List<Map<String, Object>> rawLogs = fetchLogs(ds, idx, start, end, 5000);
-        log.info("[LogTemplateJob] 拉取窗口 logs={}, window={}min", rawLogs.size(), windowMinutes);
+        // 1. 拉日志
+        List<Map<String, Object>> rawLogs = fetchLogs(ds, idx, start, end, maxPullPerWindow);
+        log.info("[LogTemplateJob] ds={} idx={} 拉取 logs={}, window={}min", dsId, idxId, rawLogs.size(), windowMinutes);
 
         int newClusters = 0;
         int upserts = 0;
@@ -106,10 +134,12 @@ public class LogTemplateJobService {
         LocalDateTime validateStart = now.minusMinutes(windowMinutes);
         for (Map<String, Object> log1 : rawLogs) {
             String service = (String) log1.get("service");
-            if (service == null || !TRAIN_SERVICES.contains(service)) {
+            if (trainDomain != null && (service == null || !trainDomain.contains(service))) {
                 continue;
             }
-            serviceSeen.add(service);
+            if (service != null) {
+                serviceSeen.add(service);
+            }
             String level = (String) log1.get("level");
             String message = (String) log1.get("message");
             String traceId = (String) log1.get("traceId");
@@ -118,11 +148,11 @@ public class LogTemplateJobService {
             }
 
             // 2. Drain
-            DrainParseResult r = drainService.parse(1L, 1L, message);
+            DrainParseResult r = drainService.parse(dsId, idxId, message);
             String templateHash = sha1Of(r.getTemplateText());
             LogTemplate t = hashCache.computeIfAbsent(templateHash, h ->
                     logTemplateMapper.selectOne(new LambdaQueryWrapper<LogTemplate>()
-                            .eq(LogTemplate::getDatasourceId, 1L)
+                            .eq(LogTemplate::getDatasourceId, dsId)
                             .eq(LogTemplate::getTemplateHash, h)
                             .last("LIMIT 1")));
             LocalDateTime lineTime = parseTime((String) log1.get("time"));
@@ -130,8 +160,8 @@ public class LogTemplateJobService {
             if (t == null) {
                 // 3a. 新模板 → insert
                 t = new LogTemplate();
-                t.setDatasourceId(1L);
-                t.setIndexConfigId(1L);
+                t.setDatasourceId(dsId);
+                t.setIndexConfigId(idxId);
                 t.setClusterId((int) r.getClusterId());
                 t.setTemplateText(r.getTemplateText());
                 t.setTokenCount(r.getTokenCount());
@@ -191,6 +221,8 @@ public class LogTemplateJobService {
         }
 
         Map<String, Object> out = new HashMap<>();
+        out.put("datasourceId", dsId);
+        out.put("indexConfigId", idxId);
         out.put("window", windowMinutes + "min");
         out.put("start", start.format(HH));
         out.put("end", end.format(HH));
@@ -201,7 +233,8 @@ public class LogTemplateJobService {
         out.put("upserts", upserts);
         out.put("newClusters", newClusters);
         out.put("statRows", statRows);
-        log.info("[LogTemplateJob] end newClusters={}, statRows={}, windowLogs={}", newClusters, statRows, rawLogs.size());
+        log.info("[LogTemplateJob] ds={} idx={} end newClusters={}, statRows={}, windowLogs={}",
+                dsId, idxId, newClusters, statRows, rawLogs.size());
         return out;
     }
 
@@ -252,7 +285,7 @@ public class LogTemplateJobService {
         LocalDateTime since = LocalDateTime.now().minusMinutes(winMin);
         List<LogTemplate> templates = logTemplateMapper.selectList(
                 new LambdaQueryWrapper<LogTemplate>()
-                        .eq(LogTemplate::getDatasourceId, 1L)
+                        .eq(LogTemplate::getDatasourceId, rule.getDatasourceId())
                         .eq(LogTemplate::getStatus, 0)
                         .ge(LogTemplate::getLastSeen, since));
         int hits = 0;
@@ -275,7 +308,7 @@ public class LogTemplateJobService {
         // 取每个模板的最近 7 个窗口
         List<LogTemplate> templates = logTemplateMapper.selectList(
                 new LambdaQueryWrapper<LogTemplate>()
-                        .eq(LogTemplate::getDatasourceId, 1L)
+                        .eq(LogTemplate::getDatasourceId, rule.getDatasourceId())
                         .eq(LogTemplate::getStatus, 0)
                         .orderByDesc(LogTemplate::getLastSeen)
                         .last("LIMIT 100"));
@@ -307,21 +340,15 @@ public class LogTemplateJobService {
     private int detectErrorRate(LogDetectRule rule, int winMin) {
         JsonNode cfg = parseParams(rule.getParams());
         double threshold = cfg.path("error_ratio").asDouble(0.3);
-        EsDatasource ds = esDatasourceMapper.selectById(1L);
-        EsIndexConfig idx = esIndexConfigMapper.selectById(1L);
-        if (ds == null || idx == null) return 0;
+        LogSource src = logSourceResolver.resolve(rule.getDatasourceId(), rule.getIndexConfigId());
+        Set<String> trainDomain = trainDomainOf(src.indexConfig());
         LocalDateTime end = LocalDateTime.now();
         LocalDateTime start = end.minusMinutes(winMin);
-        Map<String, Object> body = new HashMap<>();
-        body.put("datasourceId", 1);
-        body.put("indexConfigId", 1);
-        body.put("startTime", start.format(HH));
-        body.put("endTime", end.format(HH));
-        List<Map<String, Object>> logs = fetchLogs(ds, idx, start, end, 5000);
+        List<Map<String, Object>> logs = fetchLogs(src.datasource(), src.indexConfig(), start, end, maxPullPerWindow);
         int total = 0, err = 0;
         for (Map<String, Object> l : logs) {
             String svc = (String) l.get("service");
-            if (svc == null || !TRAIN_SERVICES.contains(svc)) continue;
+            if (trainDomain != null && (svc == null || !trainDomain.contains(svc))) continue;
             total++;
             if ("ERROR".equalsIgnoreCase((String) l.get("level"))) err++;
         }
@@ -331,7 +358,7 @@ public class LogTemplateJobService {
             String title = String.format("错误率飙升：%d/%d (%.0f%%)", err, total, ratio * 100);
             LogAnomaly a = new LogAnomaly();
             a.setRuleId(rule.getId());
-            a.setDatasourceId(1L);
+            a.setDatasourceId(src.datasourceId());
             a.setAnomalyType("error_rate");
             a.setTitle(title);
             a.setDescription("error_rate=" + ratio + "，样本量 " + total);
@@ -352,6 +379,7 @@ public class LogTemplateJobService {
 
     private List<Map<String, Object>> fetchLogs(EsDatasource ds, EsIndexConfig idx,
                                                  LocalDateTime start, LocalDateTime end, int size) {
+        size = Math.min(size, 10000);  // ES index.max_result_window 默认 10000
         EsQueryBuilder.SearchParams p = new EsQueryBuilder.SearchParams(
                 idx.getIndexPattern(), idx.getTimeField(), idx.getMessageField(),
                 idx.getLevelField(), idx.getServiceField(), idx.getTraceIdField(),
@@ -383,10 +411,12 @@ public class LogTemplateJobService {
      * 避免 fixedDelay(600s) 实际周期 > 10min 时固定窗口滚动造成的日志漏采。
      * 下限 = now - max(3*window, 30min)：既不会全量重扫历史，又能在 Job 中断后补采最近半小时。
      */
-    private LocalDateTime watermark(LocalDateTime now, int windowMinutes) {
+    private LocalDateTime watermark(long dsId, long idxId, LocalDateTime now, int windowMinutes) {
         LocalDateTime floor = now.minusMinutes(Math.max(windowMinutes * 3L, 30L));
         try {
             LogTemplate latest = logTemplateMapper.selectOne(new LambdaQueryWrapper<LogTemplate>()
+                    .eq(LogTemplate::getDatasourceId, dsId)
+                    .eq(LogTemplate::getIndexConfigId, idxId)
                     .isNotNull(LogTemplate::getLastSeen)
                     .orderByDesc(LogTemplate::getLastSeen)
                     .last("LIMIT 1"));
@@ -400,19 +430,15 @@ public class LogTemplateJobService {
         }
     }
 
+    /** ES 时间（UTC）→ 平台本地时间；解析失败按当前时间处理 */
     private LocalDateTime parseTime(String s) {
-        if (s == null || s.isBlank()) return LocalDateTime.now();
-        try {
-            // ES @timestamp 是 ISO（含 Z），去掉 Z 解析再补 +8
-            String t = s;
-            if (t.endsWith("Z")) {
-                t = t.substring(0, t.length() - 1);
-                return LocalDateTime.parse(t, DT_FMT).plusHours(8);
-            }
-            return LocalDateTime.parse(t, DT_FMT);
-        } catch (Exception e) {
-            return LocalDateTime.now();
-        }
+        LocalDateTime t = TimeZones.parseEsTime(s);
+        return t == null ? LocalDateTime.now() : t;
+    }
+
+    /** 演示索引只训练 TRAIN_SERVICES；其他索引不限服务（返回 null） */
+    private static Set<String> trainDomainOf(EsIndexConfig idx) {
+        return DEMO_INDEX_PATTERN.equals(idx.getIndexPattern()) ? TRAIN_SERVICES : null;
     }
 
     private String abbreviate(String s, int max) {
@@ -457,6 +483,7 @@ public class LogTemplateJobService {
         LogDetectRule rule = logDetectRuleMapper.selectOne(new LambdaQueryWrapper<LogDetectRule>()
                 .eq(LogDetectRule::getEnabled, 1)
                 .eq(LogDetectRule::getRuleType, type)
+                .eq(LogDetectRule::getDatasourceId, t.getDatasourceId())
                 .last("LIMIT 1"));
         if (rule == null) return;
         // 10min 内同模板同类型已报 → 跳过
@@ -471,7 +498,7 @@ public class LogTemplateJobService {
         LogAnomaly a = new LogAnomaly();
         a.setRuleId(rule.getId());
         a.setTemplateId(t.getId());
-        a.setDatasourceId(1L);
+        a.setDatasourceId(t.getDatasourceId());
         a.setAnomalyType(type);
         a.setTitle(title);
         a.setDescription(desc);

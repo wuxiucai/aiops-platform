@@ -22,6 +22,14 @@ public class NlQueryLog {
     @TableField("user_id")
     private Long userId;
 
+    /** 生成 DSL 时所用 ES 数据源；execute 只在该来源上执行（V3） */
+    @TableField("datasource_id")
+    private Long datasourceId;
+
+    /** 生成 DSL 时所用索引映射（V3） */
+    @TableField("index_config_id")
+    private Long indexConfigId;
+
     /** 用户自然语言问题（UTF-8， 不缩写） */
     @TableField("question")
     private String question;

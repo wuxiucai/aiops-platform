@@ -1,5 +1,6 @@
 package com.aiops.datasource.log;
 
+import com.aiops.common.util.TimeZones;
 import com.aiops.common.BizException;
 
 import java.time.LocalDateTime;
@@ -57,9 +58,9 @@ public final class EsQueryBuilder {
         }
 
         List<String> filter = new ArrayList<>();
-        // 时间范围：LocalDateTime 是 +08:00 本地时间；ES range 无 time_zone 参数时按 UTC 解释 → 换算 UTC
-        String startUtc = p.startTime().minusHours(8).format(FMT);
-        String endUtc = p.endTime().minusHours(8).format(FMT);
+        // 时间范围：入参是平台本地时间；ES range 无 time_zone 参数时按 UTC 解释 → 换算 UTC
+        String startUtc = TimeZones.toUtc(p.startTime()).format(FMT);
+        String endUtc = TimeZones.toUtc(p.endTime()).format(FMT);
         filter.add(String.format(
                 "{\"range\":{\"%s\":{\"gte\":\"%s\",\"lte\":\"%s\",\"format\":\"yyyy-MM-dd HH:mm:ss||epoch_millis\"}}}",
                 p.timeField(), startUtc, endUtc));
@@ -139,7 +140,7 @@ public final class EsQueryBuilder {
         List<String> filter = new ArrayList<>();
         filter.add(String.format(
                 "{\"range\":{\"%s\":{\"gte\":\"%s\",\"lte\":\"%s\",\"format\":\"yyyy-MM-dd HH:mm:ss||epoch_millis\"}}}",
-                p.timeField(), p.startTime().minusHours(8).format(FMT), p.endTime().minusHours(8).format(FMT)));
+                p.timeField(), TimeZones.toUtc(p.startTime()).format(FMT), TimeZones.toUtc(p.endTime()).format(FMT)));
         if (p.levels() != null && !p.levels().isEmpty()) {
             StringBuilder terms = new StringBuilder("{\"terms\":{\"").append(keywordOf(p.levelField())).append("\":[");
             for (int i = 0; i < p.levels().size(); i++) {

@@ -39,7 +39,10 @@ export function similarCase(incidentId, topK = 3) {
 export function kbSyncEmbeddings()        { return request.post('/api/kb/case/sync-embeddings') }
 
 /* ================== M6 NL2DSL（自然语言→ES DSL） ================== */
-export function nl2dslGenerate(question)  { return request.post('/api/log/ai/nl2dsl', { question }) }
+// source 可选 { datasourceId, indexConfigId }；不传则后端用默认数据源
+export function nl2dslGenerate(question, source = {}) {
+  return request.post('/api/log/ai/nl2dsl', { question, ...source })
+}
 export function nl2dslExecute(recordId)   { return request.post('/api/log/ai/nl2dsl/execute', { recordId }) }
 export function nlQueryHistory(limit = 20) {
   return request.get('/api/log/nl-query-history', { params: { limit } })
