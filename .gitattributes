@@ -1,0 +1,2 @@
+# Flyway 按文件内容算 checksum，换行符变化会导致 validate 失败：迁移脚本固定 LF
+*.sql text eol=lf
