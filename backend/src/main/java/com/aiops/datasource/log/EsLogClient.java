@@ -77,7 +77,8 @@ public class EsLogClient {
             String resp = webClientBuilder.baseUrl(baseUrl).build()
                     .get()
                     .uri(path)
-                    .exchangeToMono(r -> r.bodyToMono(String.class).defaultIfEmpty(""))
+                    .exchangeToMono(r -> r.bodyToMono(String.class).defaultIfEmpty("")
+                            .map(body -> requireSuccess(r.statusCode().value(), body)))
                     .block(Duration.ofSeconds(30));
             log.info("[ES] GET {}{} 耗时 {}ms", baseUrl, path, System.currentTimeMillis() - start);
             return resp;
@@ -105,7 +106,8 @@ public class EsLogClient {
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(jsonBody)
                     .exchangeToMono(r -> r.bodyToMono(String.class)
-                            .defaultIfEmpty(""))
+                            .defaultIfEmpty("")
+                            .map(body -> requireSuccess(r.statusCode().value(), body)))
                     .block(Duration.ofSeconds(60));
             log.info("[ES] POST {}{} bodyLen={} 耗时 {}ms",
                     baseUrl, path, jsonBody.length(), System.currentTimeMillis() - start);
@@ -116,5 +118,21 @@ public class EsLogClient {
             log.error("[ES] POST {}{} 失败: {}", baseUrl, path, e.getMessage());
             throw new BizException("ES 调用失败: " + e.getMessage());
         }
+    }
+
+    private static final java.util.regex.Pattern ES_REASON =
+            java.util.regex.Pattern.compile("\"reason\"\\s*:\\s*\"([^\"]{1,300})\"");
+
+    /**
+     * ES 返回 4xx/5xx 时响应体是 {"error":{...},"status":400}，不检查状态码就会被调用方当作
+     * "查询成功、0 命中"——索引不存在、DSL 写错、权限不足在界面上都表现为"没有日志"。
+     */
+    static String requireSuccess(int status, String body) {
+        if (status >= 200 && status < 300) {
+            return body;
+        }
+        java.util.regex.Matcher m = ES_REASON.matcher(body == null ? "" : body);
+        String reason = m.find() ? m.group(1) : (body == null || body.isBlank() ? "无响应体" : body.substring(0, Math.min(body.length(), 200)));
+        throw new BizException("ES 返回 " + status + "：" + reason);
     }
 }

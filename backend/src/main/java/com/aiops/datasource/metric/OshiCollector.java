@@ -23,22 +23,32 @@ public class OshiCollector implements MetricCollector {
     /** TCP 状态采样（Windows 下用 netstat ESTABLISHED 近似；Linux 用 OSHI 精确值） */
     private final InternetProtocolStats ipStats = os.getInternetProtocolStats();
 
-    /** 上一次 CPU 采样（OSHI 需要 diff 计算） */
+    /** 上一次 CPU 采样（OSHI 需要 diff 计算）；读-算-写三步由 sampleCpuLoad 加锁保证原子 */
     private long[] prevTicks = cpu.getSystemCpuLoadTicks();
+
+    /**
+     * 多个采集任务可能同时调用同一个 collector：不加锁时两个线程会拿同一个 prevTicks 各算一次，
+     * 或一个线程刚写回的 ticks 被另一个覆盖，得到 0 或负值的 CPU 使用率。
+     */
+    private synchronized double sampleCpuLoad() {
+        long[] newTicks = cpu.getSystemCpuLoadTicks();
+        double load = cpu.getSystemCpuLoadBetweenTicks(prevTicks) * 100;
+        prevTicks = newTicks;
+        return load;
+    }
 
     @Override
     public List<MetricPoint> collect(Long targetId, List<String> metricKeys) {
         List<MetricPoint> points = new ArrayList<>();
-        long[] newTicks = cpu.getSystemCpuLoadTicks();
-        double cpuLoad = cpu.getSystemCpuLoadBetweenTicks(prevTicks) * 100;
-        prevTicks = newTicks;
+        double cpuLoad = sampleCpuLoad();
 
         for (String key : metricKeys) {
             Double value = switch (key) {
                 case "cpu.usage" -> round(cpuLoad);
                 case "cpu.load" -> {
+                    // Windows 不提供 load average，OSHI 返回负数：不写库，避免 -1 污染曲线与告警
                     double[] loads = cpu.getSystemLoadAverage(1);
-                    yield round(loads.length > 0 ? loads[0] : 0);
+                    yield loads.length > 0 && loads[0] >= 0 ? round(loads[0]) : null;
                 }
                 case "mem.usage" -> {
                     double total = memory.getTotal();

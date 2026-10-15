@@ -110,4 +110,23 @@ class EsLogClientMockTest {
         assertThrows(com.aiops.common.BizException.class,
                 () -> client.postSearch(baseUrl, "/aiops-log-1/_mapping", "{}"));
     }
+
+    @Test
+    void es4xxSurfacesReasonInsteadOfEmptyResult() {
+        // 索引不存在时 ES 返回 404 + error 体；此前会被当作"0 命中"静默吞掉
+        server.enqueue(new MockResponse().setResponseCode(404)
+                .setBody("{\"error\":{\"type\":\"index_not_found_exception\","
+                        + "\"reason\":\"no such index [pam-x]\"},\"status\":404}")
+                .setHeader("Content-Type", "application/json"));
+        com.aiops.common.BizException e = assertThrows(com.aiops.common.BizException.class,
+                () -> client.postSearch(baseUrl, "/pam-x/_search", "{}"));
+        assertTrue(e.getMessage().contains("404"), e.getMessage());
+        assertTrue(e.getMessage().contains("no such index [pam-x]"), e.getMessage());
+    }
+
+    @Test
+    void es5xxOnGetAlsoFails() {
+        server.enqueue(new MockResponse().setResponseCode(503).setBody(""));
+        assertThrows(com.aiops.common.BizException.class, () -> client.get(baseUrl, "/_cluster/health"));
+    }
 }

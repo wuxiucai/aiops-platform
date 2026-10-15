@@ -10,6 +10,8 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 指标采集 Job：扫描启用任务 → 提交到 aiopsCollectExecutor。
@@ -20,6 +22,12 @@ public class MetricCollectJob {
 
     private final MetricCollectService metricCollectService;
     private final ThreadPoolTaskExecutor collectExecutor;
+
+    /**
+     * 在途任务 id。last_run_time 要等采集完成才写库，单次采集耗时超过扫描节拍（1s）时，
+     * 仅凭 last_run_time 判断会把同一任务重复提交，造成并发采集与指标重复入库。
+     */
+    private final Set<Long> inFlight = ConcurrentHashMap.newKeySet();
 
     public MetricCollectJob(MetricCollectService metricCollectService,
                             @Qualifier("aiopsCollectExecutor") ThreadPoolTaskExecutor collectExecutor) {
@@ -37,8 +45,7 @@ public class MetricCollectJob {
      * 性能说明：
      *   - 每 1s 一次 SELECT collect_task WHERE status=1 AND deleted=0，
      *     表通常 < 100 行，毫秒级返回，对 DB 压力可忽略。
-     *   - 采集本身仍在 collectExecutor 线程池异步执行，1s 节拍只是调度精度提升，
-     *     不会让重复任务并发跑（同一任务到点才会提交）。
+     *   - 采集在 collectExecutor 线程池异步执行；inFlight 保证同一任务同一时刻最多一个在跑。
      */
     @Scheduled(fixedDelay = 1_000, initialDelay = 10_000)
     public void run() {
@@ -50,15 +57,23 @@ public class MetricCollectJob {
             long intervalMs = (task.getIntervalSec() == null ? 30 : task.getIntervalSec()) * 1000L;
             boolean due = task.getLastRunTime() == null
                     || now - java.sql.Timestamp.valueOf(task.getLastRunTime()).getTime() >= intervalMs;
-            if (due) {
-                collectExecutor.execute(() -> {
-                    try {
-                        metricCollectService.runTask(task);
-                    } catch (Exception e) {
-                        log.error("[Job] 采集任务执行失败: taskId={}", task.getId(), e);
-                    }
-                });
-                submitted++;
+            if (due && inFlight.add(task.getId())) {
+                try {
+                    collectExecutor.execute(() -> {
+                        try {
+                            metricCollectService.runTask(task);
+                        } catch (Exception e) {
+                            log.error("[Job] 采集任务执行失败: taskId={}", task.getId(), e);
+                        } finally {
+                            inFlight.remove(task.getId());
+                        }
+                    });
+                    submitted++;
+                } catch (RuntimeException rejected) {
+                    // 线程池拒绝时任务从未运行，必须释放标记，否则该任务永远不再被调度
+                    inFlight.remove(task.getId());
+                    log.warn("[Job] 采集任务提交被拒绝: taskId={}, {}", task.getId(), rejected.getMessage());
+                }
             }
         }
         // 只在有提交时打 INFO；空扫降为 DEBUG，避免 1s 节拍导致日志噪音
