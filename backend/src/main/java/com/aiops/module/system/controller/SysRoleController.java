@@ -1,14 +1,10 @@
 package com.aiops.module.system.controller;
 
-import com.aiops.common.BizException;
 import com.aiops.common.Result;
 import com.aiops.module.system.annotation.OperLog;
 import com.aiops.module.system.entity.SysRole;
-import com.aiops.module.system.entity.SysRolePermission;
-import com.aiops.module.system.mapper.SysRoleMapper;
-import com.aiops.module.system.mapper.SysRolePermissionMapper;
+import com.aiops.module.system.service.SysRoleService;
 import com.aiops.security.RequirePerm;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,24 +26,21 @@ import java.util.List;
 @Validated
 public class SysRoleController {
 
-    private final SysRoleMapper sysRoleMapper;
-    private final SysRolePermissionMapper sysRolePermissionMapper;
+    private final SysRoleService sysRoleService;
 
     @Operation(summary = "分页列表")
     @RequirePerm("system:role:list")
     @GetMapping("/page")
     public Result<Page<SysRole>> page(@RequestParam(defaultValue = "1") long current,
                                       @RequestParam(defaultValue = "10") long size) {
-        return Result.ok(sysRoleMapper.selectPage(new Page<>(current, size),
-                new LambdaQueryWrapper<SysRole>().orderByAsc(SysRole::getId)));
+        return Result.ok(sysRoleService.page(current, size));
     }
 
     @Operation(summary = "全部角色（下拉用）")
     @RequirePerm("system:role:list")
     @GetMapping("/all")
     public Result<List<SysRole>> all() {
-        return Result.ok(sysRoleMapper.selectList(new LambdaQueryWrapper<SysRole>()
-                .eq(SysRole::getStatus, 1)));
+        return Result.ok(sysRoleService.listEnabled());
     }
 
     @Data
@@ -67,18 +60,7 @@ public class SysRoleController {
     @OperLog(module = "system", operation = "新增角色")
     @PostMapping
     public Result<Void> add(@RequestBody @Validated RoleSaveRequest req) {
-        Long cnt = sysRoleMapper.selectCount(new LambdaQueryWrapper<SysRole>()
-                .eq(SysRole::getRoleCode, req.getRoleCode()));
-        if (cnt > 0) {
-            throw new BizException("角色编码已存在");
-        }
-        SysRole role = new SysRole();
-        role.setRoleCode(req.getRoleCode());
-        role.setRoleName(req.getRoleName());
-        role.setDescription(req.getDescription());
-        role.setStatus(req.getStatus() == null ? 1 : req.getStatus());
-        sysRoleMapper.insert(role);
-        savePerms(role.getId(), req.getPermissionIds());
+        sysRoleService.add(req);
         return Result.ok();
     }
 
@@ -86,11 +68,7 @@ public class SysRoleController {
     @RequirePerm("system:role:list")
     @GetMapping("/{id}/permissions")
     public Result<List<Long>> getRolePermissions(@PathVariable Long id) {
-        List<Long> permIds = sysRolePermissionMapper.selectList(
-                        new LambdaQueryWrapper<SysRolePermission>()
-                                .eq(SysRolePermission::getRoleId, id))
-                .stream().map(SysRolePermission::getPermissionId).toList();
-        return Result.ok(permIds);
+        return Result.ok(sysRoleService.permissionIdsOf(id));
     }
 
     @Operation(summary = "修改角色")
@@ -98,17 +76,7 @@ public class SysRoleController {
     @OperLog(module = "system", operation = "修改角色")
     @PutMapping
     public Result<Void> update(@RequestBody @Validated RoleSaveRequest req) {
-        SysRole role = new SysRole();
-        role.setId(req.getId());
-        role.setRoleName(req.getRoleName());
-        role.setDescription(req.getDescription());
-        role.setStatus(req.getStatus());
-        sysRoleMapper.updateById(role);
-        if (req.getPermissionIds() != null) {
-            sysRolePermissionMapper.delete(new LambdaQueryWrapper<SysRolePermission>()
-                    .eq(SysRolePermission::getRoleId, req.getId()));
-            savePerms(req.getId(), req.getPermissionIds());
-        }
+        sysRoleService.update(req);
         return Result.ok();
     }
 
@@ -117,24 +85,7 @@ public class SysRoleController {
     @OperLog(module = "system", operation = "删除角色")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
-        if (id <= 3L) {
-            throw new BizException("内置角色不可删除");
-        }
-        sysRoleMapper.deleteById(id);
-        sysRolePermissionMapper.delete(new LambdaQueryWrapper<SysRolePermission>()
-                .eq(SysRolePermission::getRoleId, id));
+        sysRoleService.delete(id);
         return Result.ok();
-    }
-
-    private void savePerms(Long roleId, List<Long> permIds) {
-        if (permIds == null) {
-            return;
-        }
-        for (Long pid : permIds) {
-            SysRolePermission rp = new SysRolePermission();
-            rp.setRoleId(roleId);
-            rp.setPermissionId(pid);
-            sysRolePermissionMapper.insert(rp);
-        }
     }
 }
