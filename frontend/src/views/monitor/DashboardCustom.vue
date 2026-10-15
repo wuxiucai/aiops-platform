@@ -102,7 +102,6 @@
         </div>
 
         <el-card shadow="never" v-loading="loading">
-          <!-- vue-grid-layout：拖拽 + 调整大小 -->
           <!-- 绝对定位 + 手动鼠标拖拽（稳定可靠） -->
           <div v-if="layout.length > 0" class="dash-grid-abs" :style="{ height: gridHeight + 'px' }">
             <div
@@ -271,9 +270,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { listTemplates, getTemplate, saveTemplate, saveDefault as apiSaveDefault, deleteTemplate } from '../../api/dashboard'
 import request from '../../utils/request'
 import WidgetRenderer from './WidgetRenderer.vue'
-import { GridLayout, GridItem } from 'vue-grid-layout'
 import { useRoute, useRouter } from 'vue-router'
-import './dashboard-grid.css'
 
 const route = useRoute()
 const router = useRouter()
@@ -963,54 +960,5 @@ onMounted(() => { load(); loadTargetsAndMetrics() })
   height: 5px;
   border-right: 2px solid rgba(0,0,0,0.4);
   border-bottom: 2px solid rgba(0,0,0,0.4);
-}
-
-/* vue-grid-layout 必需样式 */
-.vue-grid-layout {
-    position: relative;
-    transition: height 200ms ease;
-    background: transparent;
-}
-.vue-grid-item {
-    transition: all 200ms ease;
-    transition-property: left, top, right;
-    background: #fff;
-    border: 1px solid #dcdfe6;
-    border-radius: 4px;
-    overflow: hidden;
-    box-sizing: border-box;
-}
-.vue-grid-item.cssTransforms { transition-property: transform; }
-.vue-grid-item.resizing { opacity: 0.9; z-index: 3; }
-.vue-grid-item.static { background: #f5f7fa; }
-.vue-grid-item.vue-grid-placeholder {
-    background: #e6a23c;
-    opacity: 0.2;
-    transition-duration: 100ms;
-    z-index: 2;
-    user-select: none;
-}
-.vue-grid-item > .vue-resizable-handle {
-    position: absolute;
-    width: 20px;
-    height: 20px;
-    bottom: 0;
-    right: 0;
-    cursor: se-resize;
-    background: transparent;
-    z-index: 4;
-}
-.vue-grid-item > .vue-resizable-handle::after {
-    content: "";
-    position: absolute;
-    right: 3px;
-    bottom: 3px;
-    width: 5px;
-    height: 5px;
-    border-right: 2px solid rgba(0, 0, 0, 0.4);
-    border-bottom: 2px solid rgba(0, 0, 0, 0.4);
-}
-.vue-grid-item:not(.vue-grid-placeholder) {
-    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
 }
 </style>

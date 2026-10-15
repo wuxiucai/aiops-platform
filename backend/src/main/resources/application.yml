@@ -28,6 +28,16 @@ spring:
   servlet:
     multipart:
       max-file-size: 20MB
+  # 数据库版本化迁移：db/migration/V*.sql
+  # 空库：依次执行 V1(结构)+V2(种子)；已有库：首次启动 baseline 到 V2，只执行之后的新迁移
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 2
+    validate-on-migrate: true
+    # 提示词模板里有 ${title}/${question} 等变量，关闭 Flyway 占位符替换，否则迁移会报"未提供占位符"
+    placeholder-replacement: false
 
 mybatis-plus:
   configuration:
