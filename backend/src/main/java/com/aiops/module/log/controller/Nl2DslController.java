@@ -2,6 +2,8 @@ package com.aiops.module.log.controller;
 
 import com.aiops.common.BizException;
 import com.aiops.common.Result;
+import com.aiops.module.log.dto.Nl2DslExecuteRequest;
+import com.aiops.module.log.dto.Nl2DslGenerateRequest;
 import com.aiops.module.log.entity.NlQueryLog;
 import com.aiops.module.log.service.Nl2DslService;
 import com.aiops.security.LoginUser;
@@ -42,33 +44,24 @@ public class Nl2DslController {
     @Operation(summary = "生成 ES DSL（不执行），三重安全校验后返回 validated+dsl+recordId")
     @RequirePerm("log:search:exec")
     @PostMapping("/ai/nl2dsl")
-    public Result<Map<String, Object>> generate(@RequestBody Map<String, Object> body) {
-        String question = body == null ? null
-                : (body.get("question") == null ? null : String.valueOf(body.get("question")));
-        if (question == null || question.isBlank()) {
+    public Result<Map<String, Object>> generate(@RequestBody Nl2DslGenerateRequest body) {
+        if (body.getQuestion() == null || body.getQuestion().isBlank()) {
             throw new BizException("question 不能为空");
         }
-        Long userId = currentUserId();
         // 可选：前端选择的数据源/索引映射；未选时落到默认数据源
-        Map<String, Object> out = nl2DslService.generate(userId, question,
-                toLong(body.get("datasourceId")), toLong(body.get("indexConfigId")));
-        return Result.ok(out);
+        return Result.ok(nl2DslService.generate(currentUserId(), body.getQuestion(),
+                body.getDatasourceId(), body.getIndexConfigId()));
     }
 
     /** 执行已 validated=1 的记录 */
     @Operation(summary = "执行 NL2DSL 生成的 DSL，落 hitCount/answer")
     @RequirePerm("log:search:exec")
     @PostMapping("/ai/nl2dsl/execute")
-    public Result<Map<String, Object>> execute(@RequestBody Map<String, Object> body) {
-        if (body == null || body.get("recordId") == null) {
+    public Result<Map<String, Object>> execute(@RequestBody Nl2DslExecuteRequest body) {
+        if (body.getRecordId() == null) {
             throw new BizException("recordId 必填");
         }
-        Long recordId = body.get("recordId") instanceof Number
-                ? ((Number) body.get("recordId")).longValue()
-                : Long.parseLong(String.valueOf(body.get("recordId")));
-        Long userId = currentUserId();
-        Map<String, Object> out = nl2DslService.execute(userId, recordId);
-        return Result.ok(out);
+        return Result.ok(nl2DslService.execute(currentUserId(), body.getRecordId()));
     }
 
     /** 查询历史 */
@@ -77,13 +70,6 @@ public class Nl2DslController {
     @GetMapping("/nl-query-history")
     public Result<List<NlQueryLog>> history(@RequestParam(value = "limit", required = false, defaultValue = "20") int limit) {
         return Result.ok(nl2DslService.history(currentUserId(), limit));
-    }
-
-    private static Long toLong(Object v) {
-        if (v == null || String.valueOf(v).isBlank()) {
-            return null;
-        }
-        return v instanceof Number n ? n.longValue() : Long.parseLong(String.valueOf(v));
     }
 
     private static Long currentUserId() {

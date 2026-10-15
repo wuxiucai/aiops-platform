@@ -6,6 +6,7 @@ import com.aiops.datasource.log.EsQueryBuilder;
 import com.aiops.common.util.TimeZones;
 import com.aiops.module.esa.entity.EsIndexConfig;
 import com.aiops.module.esa.service.LogSourceResolver;
+import com.aiops.module.log.dto.LogSearchRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -33,8 +34,8 @@ public class LogSearchService {
     private final EsLogClient esLogClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    /** POST /api/log/search：参数 = 检索请求体 Map。返回{total, records, dsl} */
-    public Map<String, Object> search(Map<String, Object> body) {
+    /** POST /api/log/search：返回{total, records, dsl} */
+    public Map<String, Object> search(LogSearchRequest body) {
         LogSourceResolver.LogSource source = resolveSource(body);
         EsQueryBuilder.SearchParams p = parseParams(body, source.indexConfig());
         String dsl = EsQueryBuilder.buildSearchDsl(p);
@@ -71,7 +72,7 @@ public class LogSearchService {
     }
 
     /** POST /api/log/search/histogram：时间直方图 */
-    public Map<String, Object> histogram(Map<String, Object> body) {
+    public Map<String, Object> histogram(LogSearchRequest body) {
         LogSourceResolver.LogSource source = resolveSource(body);
         EsQueryBuilder.SearchParams p = parseParams(body, source.indexConfig());
         String dsl = EsQueryBuilder.buildHistogramDsl(p);
@@ -101,39 +102,23 @@ public class LogSearchService {
     }
 
     /** 解析前端参数为 SearchParams */
-    @SuppressWarnings("unchecked")
-    private EsQueryBuilder.SearchParams parseParams(Map<String, Object> body, EsIndexConfig idx) {
-        String startStr = (String) body.get("startTime");
-        String endStr = (String) body.get("endTime");
-        if (startStr == null || endStr == null) {
+    private EsQueryBuilder.SearchParams parseParams(LogSearchRequest body, EsIndexConfig idx) {
+        if (body.getStartTime() == null || body.getEndTime() == null) {
             throw new BizException("startTime / endTime 必填");
         }
-        LocalDateTime start = LocalDateTime.parse(startStr.replace('T', ' '), IN_FMT);
-        LocalDateTime end = LocalDateTime.parse(endStr.replace('T', ' '), IN_FMT);
-
-        List<String> levels = (List<String>) body.get("levels");
-        List<String> services = (List<String>) body.get("services");
-        String keyword = (String) body.get("keyword");
-        String traceId = (String) body.get("traceId");
-        int page = body.get("page") == null ? 1 : ((Number) body.get("page")).intValue();
-        int size = body.get("size") == null ? 20 : ((Number) body.get("size")).intValue();
-        String analyzer = body.get("analyzer") == null ? "standard" : (String) body.get("analyzer");
-
+        LocalDateTime start = LocalDateTime.parse(body.getStartTime().replace('T', ' '), IN_FMT);
+        LocalDateTime end = LocalDateTime.parse(body.getEndTime().replace('T', ' '), IN_FMT);
         return new EsQueryBuilder.SearchParams(
                 idx.getIndexPattern(), idx.getTimeField(), idx.getMessageField(),
                 idx.getLevelField(), idx.getServiceField(), idx.getTraceIdField(),
-                start, end, levels, services, keyword, traceId, page, size, analyzer);
+                start, end, body.getLevels(), body.getServices(), body.getKeyword(), body.getTraceId(),
+                body.getPage() == null ? 1 : body.getPage(),
+                body.getSize() == null ? 20 : body.getSize(),
+                body.getAnalyzer() == null ? "standard" : body.getAnalyzer());
     }
 
     /** 前端未选时由 LogSourceResolver 落到默认数据源，不再静默用 id=1 */
-    private LogSourceResolver.LogSource resolveSource(Map<String, Object> body) {
-        return logSourceResolver.resolve(toLong(body.get("datasourceId")), toLong(body.get("indexConfigId")));
-    }
-
-    private static Long toLong(Object v) {
-        if (v == null || String.valueOf(v).isBlank()) {
-            return null;
-        }
-        return v instanceof Number n ? n.longValue() : Long.parseLong(String.valueOf(v));
+    private LogSourceResolver.LogSource resolveSource(LogSearchRequest body) {
+        return logSourceResolver.resolve(body.getDatasourceId(), body.getIndexConfigId());
     }
 }

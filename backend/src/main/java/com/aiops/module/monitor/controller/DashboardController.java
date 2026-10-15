@@ -1,6 +1,8 @@
 package com.aiops.module.monitor.controller;
 
 import com.aiops.common.Result;
+import com.aiops.module.monitor.dto.DashboardTemplateRequest;
+import com.aiops.module.monitor.dto.TemplateMoveRequest;
 import com.aiops.module.monitor.entity.DashboardTemplate;
 import com.aiops.module.monitor.service.DashboardService;
 import com.aiops.security.RequirePerm;
@@ -38,14 +40,14 @@ public class DashboardController {
     @Operation(summary = "新建模板")
     @RequirePerm("monitor:dashboard:update")
     @PostMapping("/template")
-    public Result<DashboardTemplate> create(@RequestBody Map<String, Object> body) {
+    public Result<DashboardTemplate> create(@RequestBody DashboardTemplateRequest body) {
         return Result.ok(dashboardService.create(body));
     }
 
     @Operation(summary = "保存模板（layout + widgets)")
     @RequirePerm("monitor:dashboard:update")
     @PutMapping("/template/{id}")
-    public Result<DashboardTemplate> save(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+    public Result<DashboardTemplate> save(@PathVariable Long id, @RequestBody DashboardTemplateRequest body) {
         return Result.ok(dashboardService.save(id, body));
     }
 
@@ -68,8 +70,8 @@ public class DashboardController {
     @Operation(summary = "S3: 把模板移入分组 (groupId=null 移出到未归类)")
     @RequirePerm("monitor:dashboard:update")
     @PutMapping("/template/{id}/move")
-    public Result<Void> move(@PathVariable Long id, @RequestBody Map<String, Object> body) {
-        dashboardService.move(id, body.get("groupId"));
+    public Result<Void> move(@PathVariable Long id, @RequestBody TemplateMoveRequest body) {
+        dashboardService.move(id, body.getGroupId());
         return Result.ok();
     }
 }

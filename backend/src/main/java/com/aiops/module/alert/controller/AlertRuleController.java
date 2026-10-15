@@ -2,6 +2,7 @@ package com.aiops.module.alert.controller;
 
 import com.aiops.common.BizException;
 import com.aiops.common.Result;
+import com.aiops.module.alert.dto.DryRunRequest;
 import com.aiops.module.alert.entity.AlertRule;
 import com.aiops.module.alert.mapper.AlertRuleMapper;
 import com.aiops.module.alert.service.AlertRuleService;
@@ -130,11 +131,17 @@ public class AlertRuleController {
     @RequirePerm("alert:rule:list")
     @PostMapping("/{id}/dry-run")
     public Result<Map<String, Object>> dryRun(@PathVariable Long id,
-                                              @RequestBody Map<String, String> body) {
-        String s = body.get("startTime");
-        String e = body.get("endTime");
+                                              @RequestBody(required = false) DryRunRequest body) {
+        String s = body == null ? null : body.getStartTime();
+        String e = body == null ? null : body.getEndTime();
+        // 规则页「干跑」按钮不带时间窗（Rule.vue 调 dryRun(id, {})），此前一律报"必填"、功能不可用；
+        // 两端都不给时回放最近 24 小时
+        if (s == null && e == null) {
+            LocalDateTime now = LocalDateTime.now();
+            return Result.ok(alertRuleService.dryRun(id, now.minusHours(24), now));
+        }
         if (s == null || e == null) {
-            throw new BizException("startTime / endTime 必填");
+            throw new BizException("startTime / endTime 需同时提供");
         }
         LocalDateTime start = LocalDateTime.parse(s.replace(' ', 'T'));
         LocalDateTime end = LocalDateTime.parse(e.replace(' ', 'T'));

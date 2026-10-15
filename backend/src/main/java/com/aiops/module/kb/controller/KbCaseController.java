@@ -1,6 +1,7 @@
 package com.aiops.module.kb.controller;
 
 import com.aiops.common.Result;
+import com.aiops.module.kb.dto.SimilarCaseRequest;
 import com.aiops.module.kb.service.KbCaseService;
 import com.aiops.module.kb.service.SimilarCaseService;
 import com.aiops.security.RequirePerm;
@@ -35,13 +36,11 @@ public class KbCaseController {
     @Operation(summary = "按 incident 检索相似案例")
     @RequirePerm("incident:list")
     @PostMapping("/ai/similar-case")
-    public Result<Map<String, Object>> findSimilarCases(@RequestBody Map<String, Object> body) {
-        Object incId = body.get("incidentId");
-        if (incId == null) {
+    public Result<Map<String, Object>> findSimilarCases(@RequestBody SimilarCaseRequest body) {
+        if (body.getIncidentId() == null) {
             throw new com.aiops.common.BizException("incidentId 必填");
         }
-        long id = incId instanceof Number n ? n.longValue() : Long.parseLong(String.valueOf(incId));
-        int topK = body.get("topK") instanceof Number n ? n.intValue() : 3;
-        return Result.ok(similarCaseService.findSimilarCases(id, topK));
+        int topK = body.getTopK() == null ? 3 : body.getTopK();
+        return Result.ok(similarCaseService.findSimilarCases(body.getIncidentId(), topK));
     }
 }

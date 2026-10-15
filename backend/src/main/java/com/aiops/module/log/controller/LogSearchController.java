@@ -1,6 +1,7 @@
 package com.aiops.module.log.controller;
 
 import com.aiops.common.Result;
+import com.aiops.module.log.dto.LogSearchRequest;
 import com.aiops.module.log.service.LogSearchService;
 import com.aiops.security.RequirePerm;
 import io.swagger.v3.oas.annotations.Operation;
@@ -24,14 +25,14 @@ public class LogSearchController {
     @Operation(summary = "多条件检索 + 高亮 + 返回 DSL")
     @RequirePerm("log:search:exec")
     @PostMapping
-    public Result<Map<String, Object>> search(@RequestBody Map<String, Object> body) {
+    public Result<Map<String, Object>> search(@RequestBody LogSearchRequest body) {
         return Result.ok(logSearchService.search(body));
     }
 
     @Operation(summary = "时间直方图")
     @RequirePerm("log:search:exec")
     @PostMapping("/histogram")
-    public Result<Map<String, Object>> histogram(@RequestBody Map<String, Object> body) {
+    public Result<Map<String, Object>> histogram(@RequestBody LogSearchRequest body) {
         return Result.ok(logSearchService.histogram(body));
     }
 }

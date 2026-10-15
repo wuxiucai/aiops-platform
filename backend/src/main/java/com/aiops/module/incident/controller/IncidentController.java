@@ -2,6 +2,8 @@ package com.aiops.module.incident.controller;
 
 import com.aiops.common.BizException;
 import com.aiops.common.Result;
+import com.aiops.module.incident.dto.IncidentResolveRequest;
+import com.aiops.module.incident.dto.TimelineAppendRequest;
 import com.aiops.module.incident.entity.AlertIncident;
 import com.aiops.module.incident.mapper.AlertIncidentMapper;
 import com.aiops.module.incident.service.IncidentService;
@@ -72,8 +74,8 @@ public class IncidentController {
     @RequirePerm("incident:handle")
     @PutMapping("/{id}/resolve")
     public Result<Void> resolve(@PathVariable Long id,
-                                @RequestBody(required = false) Map<String, String> body) {
-        incidentService.resolve(id, currentUsername(), body == null ? null : body.get("remark"));
+                                @RequestBody(required = false) IncidentResolveRequest body) {
+        incidentService.resolve(id, currentUsername(), body == null ? null : body.getRemark());
         return Result.ok();
     }
 
@@ -81,13 +83,11 @@ public class IncidentController {
     @RequirePerm("incident:handle")
     @PostMapping("/{id}/timeline")
     public Result<Void> appendTimeline(@PathVariable Long id,
-                                       @RequestBody Map<String, String> body) {
-        String eventType = body.get("event_type");
-        String description = body.get("description");
-        if (description == null || description.isBlank()) {
+                                       @RequestBody TimelineAppendRequest body) {
+        if (body.getDescription() == null || body.getDescription().isBlank()) {
             throw new BizException("description 必填");
         }
-        incidentService.appendTimeline(id, eventType, description, currentUsername());
+        incidentService.appendTimeline(id, body.getEventType(), body.getDescription(), currentUsername());
         return Result.ok();
     }
 

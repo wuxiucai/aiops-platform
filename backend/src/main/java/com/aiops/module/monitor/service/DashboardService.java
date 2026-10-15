@@ -1,16 +1,14 @@
 package com.aiops.module.monitor.service;
 
 import com.aiops.common.BizException;
+import com.aiops.module.monitor.dto.DashboardTemplateRequest;
 import com.aiops.module.monitor.entity.DashboardTemplate;
 import com.aiops.module.monitor.entity.DashboardWidget;
 import com.aiops.module.monitor.mapper.DashboardTemplateMapper;
 import com.aiops.module.monitor.mapper.DashboardWidgetMapper;
 import com.aiops.security.UserContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,10 +53,10 @@ public class DashboardService {
 
     /** 新建。 */
     @Transactional
-    public DashboardTemplate create(Map<String, Object> body) {
+    public DashboardTemplate create(DashboardTemplateRequest body) {
         DashboardTemplate t = new DashboardTemplate();
         t.setUserId(currentUserId());
-        t.setName((String) body.getOrDefault("name", "未命名大盘"));
+        t.setName(body.getName() == null ? "未命名大盘" : body.getName());
         t.setIsDefault(0);
         t.setLayoutConfig("[]");
         t.setCreateTime(java.time.LocalDateTime.now());
@@ -69,24 +67,23 @@ public class DashboardService {
 
     /** 保存：name + widgets（增删改） + layout_config. */
     @Transactional
-    public DashboardTemplate save(Long id, Map<String, Object> body) {
+    public DashboardTemplate save(Long id, DashboardTemplateRequest body) {
         DashboardTemplate t = templateMapper.selectById(id);
         if (t == null) throw new BizException("模板不存在");
-        if (body.get("name") != null) t.setName((String) body.get("name"));
+        if (body.getName() != null) t.setName(body.getName());
 
-        // widgets：前端将整个 widgets 数组发过来（含 id/topK/config/sort) — 以 id 匹配
-        Object widgetsRaw = body.get("widgets");
-        if (widgetsRaw instanceof List<?> list) {
+        // widgets：前端将整个 widgets 数组发过来（含 id/config/sort) — 以 id 匹配
+        if (body.getWidgets() != null) {
             List<Long> keepIds = new ArrayList<>();
-            for (Object o : list) {
-                if (!(o instanceof Map)) continue;
-                @SuppressWarnings("unchecked")
-                Map<String, Object> w = (Map<String, Object>) o;
-                Long wid = w.get("id") == null ? null : ((Number) w.get("id")).longValue();
-                String type = (String) w.get("widgetType");
-                String title = (String) w.get("title");
-                String config = w.get("config") instanceof String s ? s : writeJson(w.get("config"));
-                Integer sort = w.get("sort") instanceof Number n ? n.intValue() : 0;
+            for (DashboardTemplateRequest.Widget w : body.getWidgets()) {
+                if (w == null) continue;
+                Long wid = w.getId();
+                String type = w.getWidgetType();
+                String title = w.getTitle();
+                // 新增时前端传 JSON 字符串，回存时传解析后的对象：字符串原样存，对象序列化
+                String config = w.getConfig() != null && w.getConfig().isTextual()
+                        ? w.getConfig().asText() : writeJson(w.getConfig());
+                Integer sort = w.getSort() == null ? 0 : w.getSort();
                 DashboardWidget up = null;
                 if (wid != null) {
                     up = widgetMapper.selectById(wid);
@@ -110,8 +107,8 @@ public class DashboardService {
         }
 
         // layout_config
-        if (body.get("layoutConfig") != null) {
-            t.setLayoutConfig(writeJson(body.get("layoutConfig")));
+        if (body.getLayoutConfig() != null && !body.getLayoutConfig().isNull()) {
+            t.setLayoutConfig(writeJson(body.getLayoutConfig()));
         }
         t.setUpdateTime(java.time.LocalDateTime.now());
         templateMapper.updateById(t);
@@ -157,14 +154,13 @@ public class DashboardService {
 
     /** S3： 把模板移入某分组；groupId null = 移出到未归类 */
     @Transactional
-    public void move(Long templateId, Object groupIdRaw) {
+    public void move(Long templateId, Long groupId) {
         Long uid = currentUserId();
         DashboardTemplate t = templateMapper.selectById(templateId);
         if (t == null) throw new com.aiops.common.BizException("模板不存在");
         if (!java.util.Objects.equals(t.getUserId(), uid)) {
             throw new com.aiops.common.BizException("无权修改他人模板");
         }
-        Long groupId = groupIdRaw == null ? null : ((Number) groupIdRaw).longValue();
         if (groupId != null) {
             com.aiops.module.monitor.entity.DashboardGroup g = dashboardGroupMapper.selectById(groupId);
             if (g == null || !java.util.Objects.equals(g.getUserId(), uid)) {

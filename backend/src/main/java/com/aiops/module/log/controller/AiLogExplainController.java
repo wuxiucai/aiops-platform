@@ -2,6 +2,7 @@ package com.aiops.module.log.controller;
 
 import com.aiops.common.BizException;
 import com.aiops.common.Result;
+import com.aiops.module.log.dto.AiExplainRequest;
 import com.aiops.module.llm.service.AiScenarioService;
 import com.aiops.module.log.service.AiLogExplainService;
 import com.aiops.security.RequirePerm;
@@ -41,20 +42,16 @@ public class AiLogExplainController {
     @Operation(summary = "AI 解读（模板/异常），输出 schema 校验后落库 log_analysis_record")
     @RequirePerm("log:search:exec")
     @PostMapping("/explain")
-    public Result<Map<String, Object>> explain(@RequestBody Map<String, Object> body) {
-        // 双契约对齐
-        Object refId = body.get("templateId") != null ? body.get("templateId") : body.get("refId");
-        Object sceneCode = body.get("sceneCode") != null ? body.get("sceneCode") : body.get("scene");
-        if (refId == null) {
+    public Result<Map<String, Object>> explain(@RequestBody AiExplainRequest body) {
+        Long rid = body.resolvedRefId();
+        if (rid == null) {
             throw new BizException("templateId / refId 必填");
         }
-        String scene = sceneCode == null ? "template_explain" : String.valueOf(sceneCode);
+        String scene = body.resolvedScene();
         // sceneCode 规格化：log_explain → template_explain（AiLogExplainService 内部按 template_explain 取模板上下文）
         if ("log_explain".equalsIgnoreCase(scene)) {
             scene = "template_explain";
         }
-        Long rid = refId instanceof Number ? ((Number) refId).longValue()
-                : Long.parseLong(String.valueOf(refId));
         // 用 M5 统一场景链路（含 schema 校验 + 重试 + llm_call_log）
         JsonNode parsed;
         try {

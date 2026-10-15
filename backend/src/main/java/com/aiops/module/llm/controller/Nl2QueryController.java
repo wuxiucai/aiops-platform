@@ -2,6 +2,7 @@ package com.aiops.module.llm.controller;
 
 import com.aiops.common.BizException;
 import com.aiops.common.Result;
+import com.aiops.module.llm.dto.Nl2QueryRequest;
 import com.aiops.module.llm.service.Nl2QueryService;
 import com.aiops.security.RequirePerm;
 import io.swagger.v3.oas.annotations.Operation;
@@ -35,15 +36,10 @@ public class Nl2QueryController {
     @Operation(summary = "自然语言→结构化查询（M5-9），未知问题返回兜底+示例")
     @RequirePerm("ai:chat")
     @PostMapping("/nl2query")
-    public Result<Map<String, Object>> nl2query(@RequestBody Map<String, Object> body) {
-        if (body == null) {
-            throw new BizException("body 不能为空");
-        }
-        Object q = body.get("question");
-        if (q == null || String.valueOf(q).isBlank()) {
+    public Result<Map<String, Object>> nl2query(@RequestBody Nl2QueryRequest body) {
+        if (body.getQuestion() == null || body.getQuestion().isBlank()) {
             throw new BizException("question 不能为空");
         }
-        Map<String, Object> data = nl2QueryService.nl2query(String.valueOf(q));
-        return Result.ok(data);
+        return Result.ok(nl2QueryService.nl2query(body.getQuestion()));
     }
 }
