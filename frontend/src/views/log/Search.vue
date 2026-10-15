@@ -220,9 +220,9 @@
 import { ref, reactive, onMounted, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
-import request from '../../utils/request'
 import { useLogSource } from '../../composables/useLogSource'
 import { searchLogs, searchHistogram } from '../../api/log'
+import { getDatasourceFields, getDatasourceIndices, addIndexConfig } from '../../api/esa'
 import { useUserStore } from '../../store/user'
 import BaseChart from '../../components/BaseChart.vue'
 
@@ -272,9 +272,7 @@ async function loadServiceOptions() {
   if (!datasourceId.value) return
   const idx = indexOptions.value.find(i => i.id === indexConfigId.value)
   try {
-    const raw = await request.get(`/api/es/datasource/${datasourceId.value}/fields`, {
-      params: { indexPattern: idx?.indexPattern || 'aiops-log-*' }
-    })
+    const raw = await getDatasourceFields(datasourceId.value, { indexPattern: idx?.indexPattern || 'aiops-log-*' })
     // 字段候选可能是数组或 { service: [...] }
     let candidates = []
     if (Array.isArray(raw)) {
@@ -528,7 +526,7 @@ function openIndexMapping () {
 async function loadIndices () {
   indicesLoading.value = true
   try {
-    clusterIndices.value = await request.get(`/api/es/datasource/${datasourceId.value}/indices`) || []
+    clusterIndices.value = await getDatasourceIndices(datasourceId.value) || []
   } catch (e) { /* 拦截器已弹错 */ } finally {
     indicesLoading.value = false
   }
@@ -538,9 +536,7 @@ async function loadIndices () {
 async function probeFields () {
   probing.value = true
   try {
-    probedFields.value = await request.get(`/api/es/datasource/${datasourceId.value}/fields`, {
-      params: { indexPattern: mappingForm.value.indexPattern }
-    }) || []
+    probedFields.value = await getDatasourceFields(datasourceId.value, { indexPattern: mappingForm.value.indexPattern }) || []
     const byRole = {}
     probedFields.value.forEach(f => { if (f.suggestedRole && !byRole[f.suggestedRole]) byRole[f.suggestedRole] = f.name })
     const m = mappingForm.value
@@ -564,7 +560,7 @@ async function saveMapping () {
   if (!m.name) m.name = m.indexPattern
   mappingSaving.value = true
   try {
-    await request.post('/api/es/index-config', {
+    await addIndexConfig({
       datasourceId: m.datasourceId,
       name: m.name,
       indexPattern: m.indexPattern,

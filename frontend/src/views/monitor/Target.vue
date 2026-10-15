@@ -327,9 +327,8 @@ import { Plus, Setting, Folder, FolderOpened, DocumentRemove, ArrowRight, Monito
 import { ElMessage, ElMessageBox } from 'element-plus'
 import BaseChart from '../../components/BaseChart.vue'
 import RefreshSelector from '../../components/RefreshSelector.vue'
-import { listTarget, queryMetric } from '../../api/monitor'
+import { listTarget, queryMetric, addTarget, updateTarget, deleteTarget, listGroup, addGroup, updateGroup, deleteGroup } from '../../api/monitor'
 import { getRecordPage } from '../../api/alert'
-import request from '../../utils/request'
 import { useUserStore } from '../../store/user'
 import { minutesAgo, nowString } from '../../utils/time'
 
@@ -371,7 +370,7 @@ function targetsByGroup (gid) {
 
 async function loadGroups () {
   try {
-    const r = await request.get('/api/monitor/group/list')
+    const r = await listGroup()
     groups.value = r || []
     // 默认全部展开
     expandedGroups.value = new Set([...(r || []).map(g => g.id), -1])
@@ -425,8 +424,8 @@ async function saveGroup () {
   }
   groupSaving.value = true
   try {
-    if (groupForm.value.id) await request.put('/api/monitor/group', groupForm.value)
-    else                    await request.post('/api/monitor/group', groupForm.value)
+    if (groupForm.value.id) await updateGroup(groupForm.value)
+    else                    await addGroup(groupForm.value)
     ElMessage.success('保存成功')
     groupFormVisible.value = false
     await loadGroups()
@@ -442,7 +441,7 @@ async function onDeleteGroup (row) {
     )
   } catch { return }
   try {
-    await request.delete(`/api/monitor/group/${row.id}`)
+    await deleteGroup(row.id)
     ElMessage.success('已删除')
     await loadGroups()
     await loadTargets()  // 重新拿 target 的 groupId（后端删除时应会置 null）
@@ -524,7 +523,7 @@ async function onEdit () {
       groupId: editForm.groupId
     }
     // 拦截器在 code=200 时直接 resolve(data)；非 200 已经 ElMessage 弹错 + reject
-    await request.put('/api/monitor/target', body)
+    await updateTarget(body)
     ElMessage.success('已保存')
     editVisible.value = false
     await loadTargets()
@@ -546,7 +545,7 @@ async function onDelete () {
     )
   } catch { return }
   try {
-    await request.delete(`/api/monitor/target/${currentTarget.value.id}`)
+    await deleteTarget(currentTarget.value.id)
     ElMessage.success(`已删除 ${targetName}`)
     await loadTargets()
   } catch (e) {
@@ -580,7 +579,7 @@ async function onCreate () {
       groupId: createForm.groupId,   // 默认在 openCreateDialog 已预设为当前分组，用户可改
       status: 1
     }
-    await request.post('/api/monitor/target', body)
+    await addTarget(body)
     ElMessage.success('创建成功')
     createVisible.value = false
     const createdName = createForm.name

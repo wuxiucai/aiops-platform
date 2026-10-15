@@ -47,3 +47,14 @@ export function nl2dslExecute(recordId)   { return request.post('/api/log/ai/nl2
 export function nlQueryHistory(limit = 20) {
   return request.get('/api/log/nl-query-history', { params: { limit } })
 }
+
+/* ================== AI 运维助手会话 ================== */
+// 流式对话 /api/ai/chat/stream 走 fetch + SSE，不经 axios，留在 Chat.vue 内
+export function listChatSessions()              { return request.get('/api/ai/chat/sessions') }
+export function createChatSession(body)         { return request.post('/api/ai/chat/sessions', body) }
+export function updateChatSession(id, body)     { return request.put(`/api/ai/chat/sessions/${id}`, body) }
+export function deleteChatSession(id)           { return request.delete(`/api/ai/chat/sessions/${id}`) }
+export function listChatMessages(sessionId)     { return request.get(`/api/ai/chat/sessions/${sessionId}/messages`) }
+export function saveChatMessagesBatch(sessionId, messages) {
+  return request.post(`/api/ai/chat/sessions/${sessionId}/messages/batch`, messages)
+}

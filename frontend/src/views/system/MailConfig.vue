@@ -104,7 +104,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../../utils/request'
+import { listMailConfig, addMailConfig, updateMailConfig, deleteMailConfig, setDefaultMailConfig, testMailConfig } from '../../api/system'
 import { useUserStore } from '../../store/user'
 
 const userStore = useUserStore()
@@ -130,7 +130,7 @@ function defaultForm () {
 async function load () {
   loading.value = true
   try {
-    const r = await request.get('/api/system/mail-config/list')
+    const r = await listMailConfig()
     rows.value = r || []
   } finally { loading.value = false }
 }
@@ -147,8 +147,8 @@ function openForm (row) {
 async function save () {
   saving.value = true
   try {
-    if (form.value.id) await request.put('/api/system/mail-config', form.value)
-    else               await request.post('/api/system/mail-config', form.value)
+    if (form.value.id) await updateMailConfig(form.value)
+    else               await addMailConfig(form.value)
     ElMessage.success('保存成功')
     dialog.value = false
     load()
@@ -159,7 +159,7 @@ async function setDefault (row) {
   const ok = await ElMessageBox.confirm(`确定把 ${row.name} 设为默认 SMTP 配置吗？`, '设为默认', { type: 'warning' }).catch(() => false)
   if (!ok) return
   try {
-    await request.put(`/api/system/mail-config/${row.id}/default`)
+    await setDefaultMailConfig(row.id)
     ElMessage.success('已设为默认')
     load()
   } catch (e) { /* 拦截器已弹错误 */ }
@@ -168,7 +168,7 @@ async function setDefault (row) {
 async function toggle (row) {
   const body = { ...row }
   try {
-    await request.put('/api/system/mail-config', body)
+    await updateMailConfig(body)
     ElMessage.success(row.enabled === 1 ? '已启用' : '已停用')
   } catch (e) {
     row.enabled = row.enabled === 1 ? 0 : 1   // 失败回滚视图
@@ -187,7 +187,7 @@ async function doTestSend () {
   testSending.value = true
   try {
     // 后端 test 返回 {success: bool, ...}
-    const r = await request.post(`/api/system/mail-config/${testForm.configId}/test`, { to: testForm.to })
+    const r = await testMailConfig(testForm.configId, { to: testForm.to })
     if (r?.success) {
       ElMessage.success(`测试邮件已发送至 ${testForm.to}，请查收`)
       testVisible.value = false
@@ -201,7 +201,7 @@ async function del (row) {
   const ok = await ElMessageBox.confirm(`确认删除 ${row.name}？删除后该渠道无法发送邮件。`, '删除', { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' }).catch(() => false)
   if (!ok) return
   try {
-    await request.delete(`/api/system/mail-config/${row.id}`)
+    await deleteMailConfig(row.id)
     ElMessage.success('已删除')
     load()
   } catch (e) { /* 拦截器已弹错误 */ }

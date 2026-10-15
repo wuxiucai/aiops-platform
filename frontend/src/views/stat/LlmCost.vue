@@ -87,7 +87,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import request from '../../utils/request'
+import { getLlmCost } from '../../api/stat'
 import BaseChart from '../../components/BaseChart.vue'
 
 const days = ref(7)
@@ -147,7 +147,7 @@ const trendOption = computed(() => {
 async function load () {
   loading.value = true
   try {
-    const r = await request.get('/api/stat/llm-cost', { params: { days: days.value } })
+    const r = await getLlmCost({ days: days.value })
     data.value = r || {}
   } finally { loading.value = false }
 }

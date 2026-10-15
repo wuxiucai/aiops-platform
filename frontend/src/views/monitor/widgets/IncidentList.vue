@@ -20,7 +20,7 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue'
-import request from '../../../utils/request'
+import { getStatIncidentPage } from '../../../api/dashboard'
 
 const props = defineProps({ config: { type: Object, required: true } })
 const rows = ref([])
@@ -44,7 +44,7 @@ async function load () {
     status: props.config.status || 'open'
   }
   if (props.config.targetId) params.targetId = props.config.targetId
-  const r = await request.get('/api/dashboard-stat/incident-page', { params })
+  const r = await getStatIncidentPage(params)
   rows.value = (r && r.records) || []
 }
 

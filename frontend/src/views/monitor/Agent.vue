@@ -108,7 +108,8 @@
 import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../../utils/request'
+import { listAgents, toggleAgent, getAgentStatus, createAgent, createAgentWithTarget, getInstallCommand } from '../../api/agent'
+import { pageTarget, listGroup } from '../../api/monitor'
 import { useUserStore } from '../../store/user'
 
 const userStore = useUserStore()
@@ -145,26 +146,20 @@ function onTargetChange (v) {
   }
 }
 
-function listAgents () {
-  return request.get('/api/agent/list')
-}
-function toggleAgent (id) {
-  return request.put(`/api/agent/${id}/toggle`)
-}
 function listTargets () {
-  return request.get('/api/monitor/target/page?current=1&size=100')
+  return pageTarget({ current: 1, size: 100 })
 }
 function statusOf (targetId) {
-  return request.get(`/api/agent/status/${targetId}`)
+  return getAgentStatus(targetId)
 }
 function createAgentApi (body) {
-  return request.post('/api/agent/create', body)
+  return createAgent(body)
 }
 function createWithTargetApi (body) {
-  return request.post('/api/agent/create-with-target', body)
+  return createAgentWithTarget(body)
 }
 function listGroups () {
-  return request.get('/api/monitor/group/list')
+  return listGroup()
 }
 
 async function load () {
@@ -284,7 +279,7 @@ function downloadJar (row) {
 
 function copyInstallCmd (row) {
   // 从后端 /api/agent/list 拿到完整 install_command（含正确 base-url 和 --agent.target-id）
-  request.get(`/api/agent/install-command/${row.id}`).then(cmd => {
+  getInstallCommand(row.id).then(cmd => {
     copyText(typeof cmd === 'string' ? cmd : (cmd?.installCommand || ''))
   }).catch(() => ElMessage.warning('获取安装命令失败'))
 }

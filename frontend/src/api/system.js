@@ -55,3 +55,23 @@ export function deletePermission(id) {
 export function pageOperLog(params) {
   return request.get('/api/system/log/page', { params })
 }
+
+// ========== 邮件配置 ==========
+export function listMailConfig() {
+  return request.get('/api/system/mail-config/list')
+}
+export function addMailConfig(data) {
+  return request.post('/api/system/mail-config', data)
+}
+export function updateMailConfig(data) {
+  return request.put('/api/system/mail-config', data)
+}
+export function deleteMailConfig(id) {
+  return request.delete(`/api/system/mail-config/${id}`)
+}
+export function setDefaultMailConfig(id) {
+  return request.put(`/api/system/mail-config/${id}/default`)
+}
+export function testMailConfig(id, body) {
+  return request.post(`/api/system/mail-config/${id}/test`, body)
+}

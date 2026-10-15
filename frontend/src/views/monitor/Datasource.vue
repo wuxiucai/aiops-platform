@@ -99,7 +99,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../../utils/request'
+import { listDatasources, addDatasource, updateDatasource, deleteDatasource, testDatasource, setDefaultDatasource } from '../../api/esa'
 import { useUserStore } from '../../store/user'
 
 const userStore = useUserStore()
@@ -122,7 +122,7 @@ function typeLabel (t) { return TYPE_LABELS[t] || t || 'Elasticsearch' }
 async function load () {
   loading.value = true
   try {
-    const r = await request.get('/api/es/datasource/list')
+    const r = await listDatasources()
     rows.value = r || []
   } finally { loading.value = false }
 }
@@ -153,8 +153,8 @@ async function save () {
       apiKey: form.value.apiKey || undefined,
       remark: form.value.remark
     }
-    if (form.value.id) await request.put('/api/es/datasource', body)
-    else               await request.post('/api/es/datasource', body)
+    if (form.value.id) await updateDatasource(body)
+    else               await addDatasource(body)
     ElMessage.success('已保存')
     dialogVisible.value = false
     load()
@@ -164,7 +164,7 @@ async function save () {
 async function test (row) {
   testingId.value = row.id
   try {
-    const r = await request.post(`/api/es/datasource/${row.id}/test`)
+    const r = await testDatasource(row.id)
     const ok = r?.ok === true || (r?.testResult || '').startsWith('OK')
     ElMessage[ok ? 'success' : 'warning'](r?.testResult || (ok ? '连接 OK' : '连接失败'))
     load()
@@ -173,7 +173,7 @@ async function test (row) {
 
 async function setDefault (row) {
   try {
-    await request.put(`/api/es/datasource/${row.id}/default`)
+    await setDefaultDatasource(row.id)
     ElMessage.success(`已设 ${row.name} 为默认`)
     load()
   } catch (e) { /* 拦截器已弹错 */ }
@@ -185,7 +185,7 @@ async function onDelete (row) {
       { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' })
   } catch { return }
   try {
-    await request.delete(`/api/es/datasource/${row.id}`)
+    await deleteDatasource(row.id)
     ElMessage.success('已删除')
     load()
   } catch (e) { /* 拦截器已弹错 */ }

@@ -15,3 +15,7 @@ export function getGroupTree()           { return request.get('/api/dashboard/gr
 export function createGroup(body)        { return request.post('/api/dashboard/group', body) }
 export function updateGroup(body)        { return request.put('/api/dashboard/group', body) }
 export function deleteGroup(id)          { return request.delete(`/api/dashboard/group/${id}`) }
+export function getStatFullCount(params)     { return request.get('/api/dashboard-stat/full-count', { params }) }
+export function getStatTopAlert(params)      { return request.get('/api/dashboard-stat/top-alert', { params }) }
+export function getStatTopTemplate(params)   { return request.get('/api/dashboard-stat/top-template', { params }) }
+export function getStatIncidentPage(params)  { return request.get('/api/dashboard-stat/incident-page', { params }) }

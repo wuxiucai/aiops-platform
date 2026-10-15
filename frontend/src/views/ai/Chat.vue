@@ -100,7 +100,7 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { Plus, Promotion, EditPen, Delete } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../../utils/request'
+import { listChatSessions, listChatMessages, createChatSession, updateChatSession, deleteChatSession, saveChatMessagesBatch } from '../../api/llm'
 import { getToken, removeToken, removeUser } from '../../utils/auth'
 
 const input = ref('')
@@ -119,7 +119,7 @@ const loadingSessions = ref(false)
 async function loadSessions () {
   loadingSessions.value = true
   try {
-    const r = await request.get('/api/ai/chat/sessions')
+    const r = await listChatSessions()
     const list = r || []
     // 标记每个会话的 messages 为空数组（按需再拉）
     sessions.value = list.map(s => ({
@@ -146,7 +146,7 @@ async function loadSessions () {
 async function loadMessages (session) {
   if (!session.id || session.messagesLoaded) return
   try {
-    const r = await request.get(`/api/ai/chat/sessions/${session.id}/messages`)
+    const r = await listChatMessages(session.id)
     session.messages = (r || []).map(m => ({
       role: m.role, content: m.content, done: true, fallback: false
     }))
@@ -157,7 +157,7 @@ async function loadMessages (session) {
 async function ensureSessionPersisted (session) {
   if (session.id) return session.id
   try {
-    const r = await request.post('/api/ai/chat/sessions', { title: session.title || '新对话' })
+    const r = await createChatSession({ title: session.title || '新对话' })
     session.id = r?.id
     return session.id
   } catch (e) {
@@ -187,7 +187,7 @@ async function confirmRename (i) {
     // 已落库的会话同步到后端
     if (sessions.value[i].id) {
       try {
-        await request.put(`/api/ai/chat/sessions/${sessions.value[i].id}`, { title: v })
+        await updateChatSession(sessions.value[i].id, { title: v })
       } catch (e) { /* 拦截器已弹错误 */ }
     }
   }
@@ -207,7 +207,7 @@ async function onDeleteSession (i) {
   } catch { return }
   if (s.id) {
     try {
-      await request.delete(`/api/ai/chat/sessions/${s.id}`)
+      await deleteChatSession(s.id)
     } catch (e) { /* 拦截器已弹错误 */ return }
   }
   sessions.value.splice(i, 1)
@@ -236,7 +236,7 @@ const examples = [
 async function newChat () {
   // 落库：直接在后端创建会话，避免本地占位
   try {
-    const r = await request.post('/api/ai/chat/sessions', { title: `对话 ${sessions.value.length + 1}` })
+    const r = await createChatSession({ title: `对话 ${sessions.value.length + 1}` })
     sessions.value.push({
       id: r?.id,
       title: r?.title || `对话 ${sessions.value.length + 1}`,
@@ -425,7 +425,7 @@ async function persistTurn (userQuestion, assistantReply) {
   const sid = await ensureSessionPersisted(session)
   if (!sid) return
   try {
-    await request.post(`/api/ai/chat/sessions/${sid}/messages/batch`, [
+    await saveChatMessagesBatch(sid, [
       { role: 'user', content: userQuestion || '' },
       { role: 'assistant', content: assistantReply || '' }
     ])

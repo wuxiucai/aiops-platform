@@ -107,7 +107,8 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../../utils/request'
+import { pageCase, addCase, updateCase, deleteCase } from '../../api/kb'
+import { kbSyncEmbeddings } from '../../api/llm'
 import { useUserStore } from '../../store/user'
 
 const userStore = useUserStore()
@@ -133,7 +134,7 @@ function parseTags (json) {
 async function load () {
   loading.value = true
   try {
-    const r = await request.get('/api/kb/case', { params: query })
+    const r = await pageCase(query)
     rows.value = r?.records || []
     total.value = r?.total || 0
   } finally { loading.value = false }
@@ -153,8 +154,8 @@ async function save () {
   }
   saving.value = true
   try {
-    if (form.value.id) await request.put('/api/kb/case', form.value)
-    else               await request.post('/api/kb/case', form.value)
+    if (form.value.id) await updateCase(form.value)
+    else               await addCase(form.value)
     ElMessage.success('已保存')
     dialogVisible.value = false
     load()
@@ -167,7 +168,7 @@ async function onDelete (row) {
       { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' })
   } catch { return }
   try {
-    await request.delete(`/api/kb/case/${row.id}`)
+    await deleteCase(row.id)
     ElMessage.success('已删除')
     load()
   } catch (e) { /* 拦截器已弹错 */ }
@@ -181,7 +182,7 @@ function viewDetail (row) {
 async function syncEmbeddings () {
   syncing.value = true
   try {
-    const r = await request.post('/api/kb/case/sync-embeddings')
+    const r = await kbSyncEmbeddings()
     ElMessage.success(`嵌入同步： updated=${r?.updated ?? 0} / failed=${r?.failed ?? 0}`)
     load()
   } catch (e) { /* 拦截器已弹错 */ } finally { syncing.value = false }

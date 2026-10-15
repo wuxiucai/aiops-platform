@@ -81,7 +81,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../../utils/request'
+import { pageCollectTask, addCollectTask, updateCollectTask, deleteCollectTask, runCollectTask, pageTarget, getMetricDefinitions } from '../../api/monitor'
 import { useUserStore } from '../../store/user'
 
 const userStore = useUserStore()
@@ -107,19 +107,19 @@ async function load () {
   loading.value = true
   try {
     // 后端控制器实际暴露在 /api/monitor/collect/task/*（不是 /collect/*）
-    const r = await request.get('/api/monitor/collect/task/page', { params: { current: 1, size: 100 } })
+    const r = await pageCollectTask({ current: 1, size: 100 })
     // axios 拦截器 code===200 时已返回 res.data（分页对象本身），r.records 直接取
     rows.value = r?.records || []
   } finally { loading.value = false }
 }
 
 async function loadTargets () {
-  const r = await request.get('/api/monitor/target/page', { params: { current: 1, size: 100 } })
+  const r = await pageTarget({ current: 1, size: 100 })
   targets.value = r?.records || []
 }
 
 async function loadMetricDefs () {
-  const r = await request.get('/api/monitor/metric/definitions')
+  const r = await getMetricDefinitions()
   metricDefs.value = r || []
 }
 
@@ -141,8 +141,8 @@ async function save () {
   saving.value = true
   try {
     const body = { ...form.value, metricKeys: JSON.stringify(form.value.metricKeys) }
-    if (form.value.id) await request.put('/api/monitor/collect/task', body)
-    else               await request.post('/api/monitor/collect/task', body)
+    if (form.value.id) await updateCollectTask(body)
+    else               await addCollectTask(body)
     ElMessage.success('保存成功')
     dialog.value = false
     load()
@@ -152,14 +152,14 @@ async function save () {
 async function toggle (row) {
   const body = { ...row, metricKeys: row.metricKeys }
   try {
-    await request.put('/api/monitor/collect/task', body)
+    await updateCollectTask(body)
     ElMessage.success(row.status === 1 ? '已启用' : '已停用')
   } catch (e) { load() }
 }
 
 async function runNow (row) {
   try {
-    await request.post(`/api/monitor/collect/task/${row.id}/run`)
+    await runCollectTask(row.id)
     ElMessage.success(`正在执行 (约 ${row.intervalSec}s)...`)
     setTimeout(load, 2000)
   } catch (e) { /* 拦截器已弹错误 */ }
@@ -174,7 +174,7 @@ async function onDelete (row) {
     )
   } catch { return }
   try {
-    await request.delete(`/api/monitor/collect/task/${row.id}`)
+    await deleteCollectTask(row.id)
     ElMessage.success('已删除')
     load()
   } catch (e) { /* 拦截器已弹错误 */ }

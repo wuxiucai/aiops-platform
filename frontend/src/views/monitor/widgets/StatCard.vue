@@ -7,7 +7,7 @@
 
 <script setup>
 import { computed, ref, onMounted, watch } from 'vue'
-import request from '../../../utils/request'
+import { getStatFullCount } from '../../../api/dashboard'
 
 const props = defineProps({ config: { type: Object, required: true } })
 const value = ref(null)
@@ -39,7 +39,7 @@ async function fetchVal () {
     // 用 DashboardStatController 统一接口 + 可选 targetId 过滤
     const params = { kind: spec.kind, hours: 24 }
     if (cfg.targetId) params.targetId = cfg.targetId
-    const r = await request.get('/api/dashboard-stat/full-count', { params })
+    const r = await getStatFullCount(params)
     value.value = r?.value ?? 0
   } catch (e) { value.value = 'ERR' }
 }

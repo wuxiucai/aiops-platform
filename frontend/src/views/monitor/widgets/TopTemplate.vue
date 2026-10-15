@@ -14,7 +14,7 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue'
-import request from '../../../utils/request'
+import { getStatTopTemplate } from '../../../api/dashboard'
 
 const props = defineProps({ config: { type: Object, required: true } })
 const rows = ref([])
@@ -22,7 +22,7 @@ const rows = ref([])
 async function load () {
   const params = { limit: props.config.limit || 5 }
   if (props.config.service) params.service = props.config.service
-  const r = await request.get('/api/dashboard-stat/top-template', { params })
+  const r = await getStatTopTemplate(params)
   rows.value = Array.isArray(r) ? r : []
 }
 

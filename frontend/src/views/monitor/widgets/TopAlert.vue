@@ -10,7 +10,7 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue'
-import request from '../../../utils/request'
+import { getStatTopAlert } from '../../../api/dashboard'
 
 const props = defineProps({
   config: { type: Object, required: true },
@@ -25,7 +25,7 @@ async function load () {
     hours: (props.globalHours ?? props.config.timeRangeHours) || 24
   }
   if (props.config.targetId) params.targetId = props.config.targetId
-  const r = await request.get('/api/dashboard-stat/top-alert', { params })
+  const r = await getStatTopAlert(params)
   rows.value = Array.isArray(r) ? r : []
 }
 

@@ -4,7 +4,7 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
-import request from '../../../utils/request'
+import { queryMetric } from '../../../api/monitor'
 import * as echarts from 'echarts'
 
 const props = defineProps({
@@ -29,7 +29,7 @@ async function fetchData () {
     // 时间粒度：1h/6h 窗口按 1 分钟聚合；24h+ 按 1 小时
     step: hours >= 24 ? '1h' : (hours >= 6 ? '5m' : '1m')
   }
-  const r = await request.post('/api/monitor/metric/query', body)
+  const r = await queryMetric(body)
   // axios 拦截器已剥壳,r 即 data 本体 (List<Map>)
   const rows = Array.isArray(r) ? r : (r?.records || [])
   render(groupSeries(rows, cfg.metricKeys, cfg.targetId))

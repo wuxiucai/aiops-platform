@@ -119,7 +119,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../../utils/request'
+import { pageDocument, getDocument, addDocument, updateDocument, deleteDocument, getDocumentChunks, uploadDocument } from '../../api/kb'
 import { useUserStore } from '../../store/user'
 
 const userStore = useUserStore()
@@ -145,7 +145,7 @@ async function load () {
   loading.value = true
   try {
     // 拦截器已解包 res.data 直接返回 data；此处 data = IPage 对象 {records, total}
-    const r = await request.get('/api/kb/document', { params: query })
+    const r = await pageDocument(query)
     rows.value = r?.records || []
     total.value = r?.total || 0
   } finally { loading.value = false }
@@ -157,7 +157,7 @@ function openDialog (row) {
     : { id: null, title: '', docType: 'txt', tags: '', content: '' }
   if (row && !row.content) {
     // 列表可能没返回 content；拉一次详情
-    request.get(`/api/kb/document/${row.id}`).then(d => {
+    getDocument(row.id).then(d => {
       form.value.content = d?.content || ''
     })
   }
@@ -171,8 +171,8 @@ async function save () {
   }
   saving.value = true
   try {
-    if (form.value.id) await request.put('/api/kb/document', form.value)
-    else               await request.post('/api/kb/document', form.value)
+    if (form.value.id) await updateDocument(form.value)
+    else               await addDocument(form.value)
     ElMessage.success('已保存')
     dialogVisible.value = false
     load()
@@ -188,7 +188,7 @@ async function onDelete (row) {
     )
   } catch { return }
   try {
-    await request.delete(`/api/kb/document/${row.id}`)
+    await deleteDocument(row.id)
     ElMessage.success('已删除')
     load()
   } catch (e) { /* 拦截器已弹错 */ }
@@ -199,7 +199,7 @@ async function viewChunks (row) {
   chunksVisible.value = true
   chunksLoading.value = true
   try {
-    const r = await request.get(`/api/kb/document/${row.id}/chunks`)
+    const r = await getDocumentChunks(row.id)
     chunkRows.value = r || []
   } finally { chunksLoading.value = false }
 }
@@ -216,7 +216,7 @@ async function doUpload () {
     fd.append('file', uploadForm.file)
     if (uploadForm.title) fd.append('title', uploadForm.title)
     if (uploadForm.tags) fd.append('tags', uploadForm.tags)
-    await request.post('/api/kb/document/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    await uploadDocument(fd)
     ElMessage.success('上传成功')
     uploadVisible.value = false
     uploadForm.title = ''
