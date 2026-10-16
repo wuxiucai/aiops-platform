@@ -25,7 +25,7 @@ public class MailService {
 
     private final SysMailConfigMapper sysMailConfigMapper;
 
-    @Value("${aiops.security.aes-key:16bytes-1234abcd}")
+    @Value("${aiops.security.aes-key}")
     private String aesKey;
 
     /* ================== 私信发送 ================== */
