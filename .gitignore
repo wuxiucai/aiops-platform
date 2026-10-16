@@ -13,3 +13,7 @@ demo-service/**/data/
 data/
 logs/
 .refactor-tmp/
+
+# 本地密钥文件，不入库
+script/.sf_key
+*.key
