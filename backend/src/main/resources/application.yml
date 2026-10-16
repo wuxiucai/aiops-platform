@@ -57,6 +57,9 @@ logging:
     name: logs/aiops-platform.log
 
 aiops:
+  # 定时任务（采集 / 告警检测 / 日志模板 / 日志检测）总开关；连生产库的临时实例须设为 false
+  scheduling:
+    enabled: ${AIOPS_SCHEDULING_ENABLED:true}
   security:
     jwt-secret: ${JWT_SECRET:aiops-platform-dev-secret-key-change-me-in-prod-2027-thesis-0123456789-abcdef}
     aes-key: ${AES_KEY:16bytes-1234abcd}
