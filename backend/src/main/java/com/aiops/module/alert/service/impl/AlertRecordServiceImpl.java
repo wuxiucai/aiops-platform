@@ -94,10 +94,15 @@ public class AlertRecordServiceImpl implements AlertRecordService {
                         .eq(AlertRecord::getIncidentId, alert.getIncidentId())
                         .in(AlertRecord::getStatus, "pending", "processing"));
                 if (pendingCnt == 0) {
+                    AlertIncident incident = alertIncidentMapper.selectById(alert.getIncidentId());
+                    LocalDateTime now = LocalDateTime.now();
                     AlertIncident upd = new AlertIncident();
                     upd.setId(alert.getIncidentId());
                     upd.setStatus("resolved");
-                    upd.setEndTime(LocalDateTime.now());
+                    upd.setEndTime(now);
+                    if (incident != null && incident.getStartTime() != null) {
+                        upd.setDurationSec(java.time.Duration.between(incident.getStartTime(), now).toSeconds());
+                    }
                     alertIncidentMapper.updateById(upd);
                     log.info("[Incident] 事件#{} 联动置 resolved", alert.getIncidentId());
                 }

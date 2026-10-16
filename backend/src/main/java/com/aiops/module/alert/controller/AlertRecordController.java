@@ -1,7 +1,7 @@
 package com.aiops.module.alert.controller;
 
-import com.aiops.common.BizException;
 import com.aiops.common.Result;
+import com.aiops.common.dto.HandleRemarkRequest;
 import com.aiops.module.alert.entity.AlertRecord;
 import com.aiops.module.alert.mapper.AlertRecordMapper;
 import com.aiops.module.alert.service.AlertRecordService;
@@ -67,27 +67,24 @@ public class AlertRecordController {
     @Operation(summary = "认领")
     @RequirePerm("alert:record:handle")
     @PutMapping("/{id}/claim")
-    public Result<Void> claim(@PathVariable Long id, @RequestBody(required = false) Map<String, String> body) {
-        alertRecordService.changeStatus(id, "claim", currentUsername(),
-                body == null ? null : body.get("remark"));
+    public Result<Void> claim(@PathVariable Long id, @RequestBody(required = false) HandleRemarkRequest body) {
+        alertRecordService.changeStatus(id, "claim", currentUsername(), HandleRemarkRequest.of(body));
         return Result.ok();
     }
 
     @Operation(summary = "解决")
     @RequirePerm("alert:record:handle")
     @PutMapping("/{id}/resolve")
-    public Result<Void> resolve(@PathVariable Long id, @RequestBody(required = false) Map<String, String> body) {
-        alertRecordService.changeStatus(id, "resolve", currentUsername(),
-                body == null ? null : body.get("remark"));
+    public Result<Void> resolve(@PathVariable Long id, @RequestBody(required = false) HandleRemarkRequest body) {
+        alertRecordService.changeStatus(id, "resolve", currentUsername(), HandleRemarkRequest.of(body));
         return Result.ok();
     }
 
     @Operation(summary = "关闭")
     @RequirePerm("alert:record:handle")
     @PutMapping("/{id}/close")
-    public Result<Void> close(@PathVariable Long id, @RequestBody(required = false) Map<String, String> body) {
-        alertRecordService.changeStatus(id, "close", currentUsername(),
-                body == null ? null : body.get("remark"));
+    public Result<Void> close(@PathVariable Long id, @RequestBody(required = false) HandleRemarkRequest body) {
+        alertRecordService.changeStatus(id, "close", currentUsername(), HandleRemarkRequest.of(body));
         return Result.ok();
     }
 
@@ -95,9 +92,8 @@ public class AlertRecordController {
     @RequirePerm("alert:record:handle")
     @PutMapping("/{id}/false-positive")
     public Result<Void> falsePositive(@PathVariable Long id,
-                                      @RequestBody(required = false) Map<String, String> body) {
-        alertRecordService.changeStatus(id, "false-positive", currentUsername(),
-                body == null ? null : body.get("remark"));
+                                      @RequestBody(required = false) HandleRemarkRequest body) {
+        alertRecordService.changeStatus(id, "false-positive", currentUsername(), HandleRemarkRequest.of(body));
         return Result.ok();
     }
 

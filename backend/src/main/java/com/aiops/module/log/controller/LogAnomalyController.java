@@ -2,6 +2,7 @@ package com.aiops.module.log.controller;
 
 import com.aiops.common.BizException;
 import com.aiops.common.Result;
+import com.aiops.common.dto.HandleRemarkRequest;
 import com.aiops.module.log.entity.LogAnomaly;
 import com.aiops.module.log.mapper.LogAnomalyMapper;
 import com.aiops.security.RequirePerm;
@@ -20,7 +21,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
-import java.util.Map;
 
 @Slf4j
 @Tag(name = "日志异常")
@@ -66,9 +66,8 @@ public class LogAnomalyController {
     @RequirePerm("log:anomaly:handle")
     @PutMapping("/{id}/resolve")
     public Result<Void> resolve(@PathVariable Long id,
-                                @RequestBody(required = false) Map<String, String> body) {
-        String remark = body == null ? null : body.get("remark");
-        updateStatus(id, "resolve", "resolved", remark);
+                                @RequestBody(required = false) HandleRemarkRequest body) {
+        updateStatus(id, "resolve", "resolved", HandleRemarkRequest.of(body));
         return Result.ok();
     }
 

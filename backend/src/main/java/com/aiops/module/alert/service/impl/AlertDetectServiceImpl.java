@@ -179,6 +179,9 @@ public class AlertDetectServiceImpl implements AlertDetectService {
                 AlertRecord updStale = new AlertRecord();
                 updStale.setId(s.getId());
                 updStale.setStatus("resolved");
+                updStale.setResolvedBy("system");
+                // 断档告警按最后一次触发视为恢复
+                updStale.setResolvedTime(s.getLastTriggerTime() != null ? s.getLastTriggerTime() : LocalDateTime.now());
                 updStale.setUpdateTime(LocalDateTime.now());
                 alertRecordMapper.updateById(updStale);
                 log.info("[Alert] 收尾僵尸告警 id={} (dedupKey={}, 断档超 10min)", s.getId(), dedupKey);
@@ -260,6 +263,8 @@ public class AlertDetectServiceImpl implements AlertDetectService {
             AlertRecord upd = new AlertRecord();
             upd.setId(a.getId());
             upd.setStatus("resolved");
+            upd.setResolvedBy("system");
+            upd.setResolvedTime(now);
             upd.setUpdateTime(now);
             alertRecordMapper.updateById(upd);
             log.info("[AlertDetect] auto-resolved alert#{} (dedupKey={}, value={})",
